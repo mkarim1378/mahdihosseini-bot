@@ -1,7 +1,7 @@
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple, Union
 
 from telegram import (
     InlineKeyboardButton,
@@ -37,8 +37,8 @@ TEMP_ADMIN_IDS = {234368567}
     ADMIN_PANEL_BROADCAST_MESSAGE,
 ) = range(7)
 
-CHANNEL_INVITE_LINK = "https://t.me/+jvMlIZcElh43YTNk"
-CHANNEL_ID: Optional[int] = None
+CHANNEL_INVITE_LINK: str = ""
+CHANNEL_CHAT_IDENTIFIER: Optional[Union[int, str]] = None
 MEMBERSHIP_VERIFY_CALLBACK = "verify_membership"
 BROADCAST_OPTIONS = {
     "broadcast:all": {"label": "همه کاربران", "filter": None},
@@ -77,7 +77,12 @@ def admin_main_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def admin_settings_keyboard() -> InlineKeyboardMarkup:
+def admin_settings_keyboard(require_phone: bool) -> InlineKeyboardMarkup:
+    toggle_label = (
+        "اجبار شماره موبایل: روشن ✅"
+        if require_phone
+        else "اجبار شماره موبایل: خاموش ❌"
+    )
     return InlineKeyboardMarkup(
         [
             [
@@ -85,6 +90,7 @@ def admin_settings_keyboard() -> InlineKeyboardMarkup:
                     "مدیریت ادمین‌ها 🧑‍💼", callback_data="settings:manage"
                 )
             ],
+            [InlineKeyboardButton(toggle_label, callback_data="settings:toggle_phone")],
             [InlineKeyboardButton("پیام همگانی 📢", callback_data="settings:broadcast")],
             [InlineKeyboardButton("بازگشت 🔙", callback_data="settings:back")],
         ]
@@ -178,16 +184,65 @@ def get_bot_token() -> str:
     return token
 
 
-def get_channel_id() -> int:
+def _parse_chat_identifier(raw: Optional[str]) -> Union[int, str]:
+    if raw is None:
+        raise RuntimeError(
+            "CHANNEL_CHAT_ID is required when CHANNEL_ID is an invite link or does not start with @."
+        )
+
+    value = raw.strip()
+    if not value:
+        raise RuntimeError("CHANNEL_CHAT_ID cannot be empty.")
+
+    if value.startswith("@"):
+        return value
+
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise RuntimeError(
+            "CHANNEL_CHAT_ID must be a numeric chat ID or start with @ for public channels."
+        ) from exc
+
+
+def load_channel_configuration() -> Tuple[str, Union[int, str]]:
     raw = os.getenv("CHANNEL_ID")
     if not raw:
         raise RuntimeError(
-            "CHANNEL_ID is missing. Set it in the environment or in the .env file."
+            "CHANNEL_ID is missing. Provide the invite link, @username, or numeric chat ID in the .env file."
         )
-    try:
-        return int(raw)
-    except ValueError as exc:
-        raise RuntimeError("CHANNEL_ID must be a valid integer chat ID.") from exc
+
+    raw_value = raw.strip()
+    invite_link = os.getenv("CHANNEL_INVITE_LINK", "").strip()
+    chat_identifier_raw: Optional[str] = None
+
+    if raw_value.startswith("http://") or raw_value.startswith("https://"):
+        invite_link = raw_value
+        chat_identifier_raw = os.getenv("CHANNEL_CHAT_ID")
+    else:
+        chat_identifier_raw = raw_value
+        if not invite_link:
+            if raw_value.startswith("@"):
+                invite_link = f"https://t.me/{raw_value.lstrip('@')}"
+            else:
+                if raw_value.startswith("https://t.me/") or raw_value.startswith(
+                    "http://t.me/"
+                ):
+                    invite_link = raw_value
+                elif raw_value.startswith("t.me/"):
+                    invite_link = f"https://{raw_value}"
+                else:
+                    raise RuntimeError(
+                        "CHANNEL_INVITE_LINK is missing. Provide the channel invite link via CHANNEL_INVITE_LINK when CHANNEL_ID is a numeric ID."
+                    )
+
+    if not invite_link:
+        raise RuntimeError(
+            "CHANNEL_INVITE_LINK is missing. Provide the channel invite link via CHANNEL_ID or CHANNEL_INVITE_LINK."
+        )
+
+    chat_identifier = _parse_chat_identifier(chat_identifier_raw)
+    return invite_link, chat_identifier
 
 
 def is_admin_user(telegram_id: int) -> bool:
@@ -206,12 +261,25 @@ def ensure_user_record(update: Update) -> None:
     )
 
 
+def phone_requirement_enabled(context: ContextTypes.DEFAULT_TYPE) -> bool:
+    return bool(context.application.bot_data.get("require_phone", False))
+
+
+def set_phone_requirement(context: ContextTypes.DEFAULT_TYPE, value: bool) -> None:
+    context.application.bot_data["require_phone"] = value
+
+
 async def ensure_registered_user(
     update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
 ) -> bool:
+    ensure_user_record(update)
     user_id = update.effective_user.id if update.effective_user else None
     if user_id is None:
         return False
+
+    if not phone_requirement_enabled(context):
+        return True
 
     if database.user_has_phone(user_id):
         return True
@@ -231,10 +299,12 @@ async def prompt_for_contact(update: Update) -> None:
 async def is_user_in_channel(
     context: ContextTypes.DEFAULT_TYPE, user_id: int
 ) -> bool:
-    if CHANNEL_ID is None:
-        raise RuntimeError("CHANNEL_ID is not configured.")
+    if CHANNEL_CHAT_IDENTIFIER is None:
+        raise RuntimeError(
+            "Channel chat identifier is not configured. Ensure CHANNEL_ID (or CHANNEL_CHAT_ID) is set correctly."
+        )
     try:
-        member = await context.bot.get_chat_member(CHANNEL_ID, user_id)
+        member = await context.bot.get_chat_member(CHANNEL_CHAT_IDENTIFIER, user_id)
     except TelegramError as exc:
         logging.warning("Failed to fetch chat member %s: %s", user_id, exc)
         return False
@@ -308,14 +378,14 @@ async def handle_membership_verification(
 
     if await is_user_in_channel(context, user.id):
         await query.edit_message_text("عضویت شما تایید شد ✅")
-        if database.user_has_phone(user.id):
-            await send_main_menu(update, context)
-        else:
+        if phone_requirement_enabled(context) and not database.user_has_phone(user.id):
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
                 text="عضویت تایید شد. لطفاً شماره موبایل خود را از طریق دکمه زیر ارسال کنید.",
                 reply_markup=REQUEST_CONTACT_KEYBOARD,
             )
+        else:
+            await send_main_menu(update, context)
     else:
         await prompt_for_channel_membership(
             update, context, already_prompted=True
@@ -357,7 +427,7 @@ async def send_main_menu(
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await ensure_channel_membership(update, context):
         return
-    if not await ensure_registered_user(update):
+    if not await ensure_registered_user(update, context):
         return
     await send_main_menu(update, context)
 
@@ -413,7 +483,7 @@ async def handle_menu_selection(
 ) -> None:
     if not await ensure_channel_membership(update, context):
         return
-    if not await ensure_registered_user(update):
+    if not await ensure_registered_user(update, context):
         return
 
     if update.message:
@@ -475,7 +545,7 @@ async def admin_panel_main_callback(
     if data == "panel:settings":
         await query.edit_message_text(
             "بخش تنظیمات ربات:",
-            reply_markup=admin_settings_keyboard(),
+            reply_markup=admin_settings_keyboard(phone_requirement_enabled(context)),
         )
         return ADMIN_PANEL_SETTINGS
 
@@ -523,6 +593,20 @@ async def admin_panel_settings_callback(
             reply_markup=admin_manage_keyboard(),
         )
         return ADMIN_PANEL_MANAGE
+
+    if data == "settings:toggle_phone":
+        new_state = not phone_requirement_enabled(context)
+        set_phone_requirement(context, new_state)
+        status_text = (
+            "اجبار ارسال شماره موبایل فعال شد ✅"
+            if new_state
+            else "اجبار ارسال شماره موبایل غیرفعال شد ❌"
+        )
+        await query.edit_message_text(
+            f"{status_text}\n\nیکی از گزینه‌ها را انتخاب کنید:",
+            reply_markup=admin_settings_keyboard(new_state),
+        )
+        return ADMIN_PANEL_SETTINGS
 
     if data == "settings:broadcast":
         await query.edit_message_text(
@@ -580,7 +664,7 @@ async def admin_panel_manage_callback(
     if data == "manage:back":
         await query.edit_message_text(
             "بخش تنظیمات ربات:",
-            reply_markup=admin_settings_keyboard(),
+            reply_markup=admin_settings_keyboard(phone_requirement_enabled(context)),
         )
         return ADMIN_PANEL_SETTINGS
 
@@ -607,7 +691,7 @@ async def admin_panel_broadcast_callback(
     if data == "broadcast:back":
         await query.edit_message_text(
             "بخش تنظیمات ربات:",
-            reply_markup=admin_settings_keyboard(),
+            reply_markup=admin_settings_keyboard(phone_requirement_enabled(context)),
         )
         return ADMIN_PANEL_SETTINGS
 
@@ -643,7 +727,7 @@ async def admin_broadcast_cancel_callback(
 
     await query.edit_message_text(
         "ارسال پیام همگانی لغو شد.",
-        reply_markup=admin_settings_keyboard(),
+        reply_markup=admin_settings_keyboard(phone_requirement_enabled(context)),
     )
     return ADMIN_PANEL_SETTINGS
 
@@ -663,7 +747,7 @@ async def admin_broadcast_message(
     if option is None:
         await update.message.reply_text(
             "حالت ارسال نامعتبر است.",
-            reply_markup=admin_settings_keyboard(),
+            reply_markup=admin_settings_keyboard(phone_requirement_enabled(context)),
         )
         return ADMIN_PANEL_SETTINGS
 
@@ -677,7 +761,7 @@ async def admin_broadcast_message(
     if not recipients:
         await update.message.reply_text(
             f"هیچ کاربری در گروه «{option['label']}» یافت نشد.",
-            reply_markup=admin_settings_keyboard(),
+            reply_markup=admin_settings_keyboard(phone_requirement_enabled(context)),
         )
         context.user_data.pop("broadcast_target", None)
         return ADMIN_PANEL_SETTINGS
@@ -707,7 +791,7 @@ async def admin_broadcast_message(
     ]
     await update.message.reply_text(
         "\n".join(summary_lines),
-        reply_markup=admin_settings_keyboard(),
+        reply_markup=admin_settings_keyboard(phone_requirement_enabled(context)),
     )
     return ADMIN_PANEL_SETTINGS
 
@@ -884,7 +968,7 @@ async def admin_add_phone(
     if not await ensure_channel_membership(update, context):
         return ConversationHandler.END
 
-    if not await ensure_registered_user(update):
+    if not await ensure_registered_user(update, context):
         return ConversationHandler.END
 
     if not is_admin_user(update.effective_user.id):
@@ -1003,14 +1087,19 @@ def main() -> None:
     load_env()
     database.init_db()
     token = get_bot_token()
-    global CHANNEL_ID
-    CHANNEL_ID = get_channel_id()
+    invite_link, chat_identifier = load_channel_configuration()
+    global CHANNEL_INVITE_LINK, CHANNEL_CHAT_IDENTIFIER
+    CHANNEL_INVITE_LINK = invite_link
+    CHANNEL_CHAT_IDENTIFIER = chat_identifier
 
     logging.basicConfig(
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
     )
 
     application = Application.builder().token(token).build()
+    require_phone_env = os.getenv("REQUIRE_PHONE_DEFAULT", "").strip().lower()
+    phone_required = require_phone_env in {"1", "true", "yes", "on"}
+    application.bot_data.setdefault("require_phone", phone_required)
 
     admin_panel_handler = ConversationHandler(
         entry_points=[
