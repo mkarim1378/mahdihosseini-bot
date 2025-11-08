@@ -11,7 +11,7 @@ from telegram import (
     ReplyKeyboardRemove,
     Update,
 )
-from telegram.constants import ChatMemberStatus, ParseMode
+from telegram.constants import ChatMemberStatus, ChatType, ParseMode
 from telegram.error import TelegramError
 from telegram.ext import (
     Application,
@@ -45,6 +45,22 @@ BROADCAST_OPTIONS = {
     "broadcast:with_phone": {"label": "کاربران دارای شماره", "filter": True},
     "broadcast:without_phone": {"label": "کاربران بدون شماره", "filter": False},
 }
+
+CORE_MENU_BUTTONS = [
+    "Case Studies",
+    "وبینار ها",
+    "دراپ لرنینگ",
+    "مشاوره رایگان",
+]
+
+SERVICE_BUTTONS = [
+    "طراحی سایت",
+    "تولید محتوا",
+    "مشاوره فروش و بازاریابی",
+    "کمپین فروش",
+    "تیم سازی و منابع انسانی",
+    "برندینگ",
+]
 
 REQUEST_CONTACT_KEYBOARD = ReplyKeyboardMarkup(
     keyboard=[[KeyboardButton("ارسال شماره موبایل", request_contact=True)]],
@@ -147,17 +163,12 @@ USER_MENU_RESPONSES = {
     "وبینار ها": "وبینارهای جدید به زودی اعلام می‌شوند.",
     "دراپ لرنینگ": "دراپ لرنینگ به زودی فعال می‌شود.",
     "مشاوره رایگان": "مشاوران ما به زودی پاسخگوی شما خواهند بود.",
-    "خدمات": "\n".join(
-        [
-            "خدمات در دسترس:",
-            "• طراحی سایت",
-            "• تولید محتوا",
-            "• مشاوره فروش و بازاریابی",
-            "• کمپین فروش",
-            "• تیم سازی و منابع انسانی",
-            "• برندینگ",
-        ]
-    ),
+    "طراحی سایت": "خدمت طراحی سایت به زودی در دسترس قرار می‌گیرد.",
+    "تولید محتوا": "خدمت تولید محتوا به زودی در دسترس قرار می‌گیرد.",
+    "مشاوره فروش و بازاریابی": "خدمت مشاوره فروش و بازاریابی به زودی در دسترس قرار می‌گیرد.",
+    "کمپین فروش": "خدمت کمپین فروش به زودی در دسترس قرار می‌گیرد.",
+    "تیم سازی و منابع انسانی": "خدمت تیم سازی و منابع انسانی به زودی در دسترس قرار می‌گیرد.",
+    "برندینگ": "خدمت برندینگ به زودی در دسترس قرار می‌گیرد.",
 }
 
 
@@ -267,6 +278,24 @@ def phone_requirement_enabled(context: ContextTypes.DEFAULT_TYPE) -> bool:
 
 def set_phone_requirement(context: ContextTypes.DEFAULT_TYPE, value: bool) -> None:
     context.application.bot_data["require_phone"] = value
+
+
+async def ensure_private_chat(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> bool:
+    chat = update.effective_chat
+    if chat and chat.type != ChatType.PRIVATE:
+        if update.message:
+            await update.message.reply_text(
+                "لطفاً برای استفاده از ربات، گفت‌وگو را به چت خصوصی منتقل کنید."
+            )
+        elif chat:
+            await context.bot.send_message(
+                chat_id=chat.id,
+                text="این ربات فقط در چت خصوصی پاسخگو است.",
+            )
+        return False
+    return True
 
 
 async def ensure_registered_user(
@@ -393,13 +422,8 @@ async def handle_membership_verification(
 
 
 def build_main_menu_keyboard(user_id: Optional[int]) -> ReplyKeyboardMarkup:
-    rows = [
-        [KeyboardButton("Case Studies")],
-        [KeyboardButton("وبینار ها")],
-        [KeyboardButton("دراپ لرنینگ")],
-        [KeyboardButton("مشاوره رایگان")],
-        [KeyboardButton("خدمات")],
-    ]
+    rows = [[KeyboardButton(title)] for title in CORE_MENU_BUTTONS]
+    rows.extend([[KeyboardButton(title)] for title in SERVICE_BUTTONS])
     if user_id is not None and is_admin_user(user_id):
         rows.append([KeyboardButton("🛠️ پنل ادمین")])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
@@ -425,6 +449,8 @@ async def send_main_menu(
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await ensure_private_chat(update, context):
+        return
     if not await ensure_channel_membership(update, context):
         return
     if not await ensure_registered_user(update, context):
@@ -441,6 +467,9 @@ def extract_phone_last10(raw_phone: str) -> Optional[str]:
 
 async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not update.message.contact:
+        return
+
+    if not await ensure_private_chat(update, context):
         return
 
     if not await ensure_channel_membership(update, context):
@@ -481,6 +510,8 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def handle_menu_selection(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
+    if not await ensure_private_chat(update, context):
+        return
     if not await ensure_channel_membership(update, context):
         return
     if not await ensure_registered_user(update, context):
@@ -499,6 +530,8 @@ async def handle_menu_selection(
 async def admin_panel_entry(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
+    if not await ensure_private_chat(update, context):
+        return ConversationHandler.END
     if not await ensure_channel_membership(update, context):
         return ConversationHandler.END
 
@@ -532,6 +565,8 @@ async def admin_panel_main_callback(
     query = update.callback_query
     await query.answer()
 
+    if not await ensure_private_chat(update, context):
+        return ConversationHandler.END
     if not await ensure_channel_membership(update, context):
         return ConversationHandler.END
 
@@ -577,6 +612,8 @@ async def admin_panel_settings_callback(
     query = update.callback_query
     await query.answer()
 
+    if not await ensure_private_chat(update, context):
+        return ConversationHandler.END
     if not await ensure_channel_membership(update, context):
         return ConversationHandler.END
 
@@ -632,6 +669,8 @@ async def admin_panel_manage_callback(
     query = update.callback_query
     await query.answer()
 
+    if not await ensure_private_chat(update, context):
+        return ConversationHandler.END
     if not await ensure_channel_membership(update, context):
         return ConversationHandler.END
 
@@ -678,6 +717,8 @@ async def admin_panel_broadcast_callback(
     query = update.callback_query
     await query.answer()
 
+    if not await ensure_private_chat(update, context):
+        return ConversationHandler.END
     if not await ensure_channel_membership(update, context):
         return ConversationHandler.END
 
@@ -715,6 +756,8 @@ async def admin_broadcast_cancel_callback(
     query = update.callback_query
     await query.answer()
 
+    if not await ensure_private_chat(update, context):
+        return ConversationHandler.END
     if not await ensure_channel_membership(update, context):
         return ConversationHandler.END
 
@@ -735,6 +778,8 @@ async def admin_broadcast_cancel_callback(
 async def admin_broadcast_message(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
+    if not await ensure_private_chat(update, context):
+        return ConversationHandler.END
     if not await ensure_channel_membership(update, context):
         return ConversationHandler.END
 
@@ -794,6 +839,20 @@ async def admin_broadcast_message(
         reply_markup=admin_settings_keyboard(phone_requirement_enabled(context)),
     )
     return ADMIN_PANEL_SETTINGS
+
+
+async def handle_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logging.error("Exception while handling an update", exc_info=context.error)
+    if isinstance(update, Update):
+        chat = update.effective_chat
+        if chat and chat.type == ChatType.PRIVATE:
+            try:
+                await context.bot.send_message(
+                    chat_id=chat.id,
+                    text="خطایی رخ داد. لطفاً دوباره تلاش کنید.",
+                )
+            except TelegramError:
+                logging.debug("Failed to send error notification to user %s", chat.id)
 
 
 async def show_remove_admin_menu(
@@ -911,6 +970,8 @@ async def handle_remove_admin_selection(
     query = update.callback_query
     await query.answer()
 
+    if not await ensure_private_chat(update, context):
+        return ConversationHandler.END
     if not await ensure_channel_membership(update, context):
         return ConversationHandler.END
 
@@ -1101,11 +1162,13 @@ def main() -> None:
     phone_required = require_phone_env in {"1", "true", "yes", "on"}
     application.bot_data.setdefault("require_phone", phone_required)
 
+    private_text = filters.ChatType.PRIVATE & filters.TEXT
+
     admin_panel_handler = ConversationHandler(
         entry_points=[
-            CommandHandler("panel", admin_panel_entry),
+            CommandHandler("panel", admin_panel_entry, filters=filters.ChatType.PRIVATE),
             MessageHandler(
-                filters.TEXT & filters.Regex("^🛠️ پنل ادمین$"), admin_panel_entry
+                private_text & filters.Regex("^🛠️ پنل ادمین$"), admin_panel_entry
             ),
         ],
         states={
@@ -1124,15 +1187,13 @@ def main() -> None:
                 ),
             ],
             ADMIN_PANEL_BROADCAST_MESSAGE: [
-                MessageHandler(
-                    filters.TEXT & ~filters.COMMAND, admin_broadcast_message
-                ),
+                MessageHandler(private_text & ~filters.COMMAND, admin_broadcast_message),
                 CallbackQueryHandler(
                     admin_broadcast_cancel_callback, pattern="^broadcast:cancel$"
                 ),
             ],
             ADMIN_PANEL_ADD_PHONE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_phone),
+                MessageHandler(private_text & ~filters.COMMAND, admin_add_phone),
                 CallbackQueryHandler(admin_add_cancel_callback, pattern="^add:cancel$"),
             ],
             ADMIN_PANEL_REMOVE_PHONE: [
@@ -1149,14 +1210,23 @@ def main() -> None:
             pattern=f"^{MEMBERSHIP_VERIFY_CALLBACK}$",
         )
     )
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(admin_panel_handler)
-    application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
     application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu_selection)
+        CommandHandler("start", start, filters=filters.ChatType.PRIVATE)
+    )
+    application.add_handler(admin_panel_handler)
+    application.add_handler(
+        MessageHandler(filters.ChatType.PRIVATE & filters.CONTACT, handle_contact)
+    )
+    application.add_handler(
+        MessageHandler(private_text & ~filters.COMMAND, handle_menu_selection)
     )
 
-    application.run_polling()
+    application.add_error_handler(handle_error)
+
+    application.run_polling(
+        allowed_updates=["message", "callback_query"],
+        drop_pending_updates=True,
+    )
 
 
 if __name__ == "__main__":
