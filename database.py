@@ -207,3 +207,26 @@ def list_admins() -> Iterable[Dict[str, str]]:
                 "username": username or "",
             }
 
+
+def get_user_stats() -> Dict[str, int]:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN phone_number IS NOT NULL AND TRIM(phone_number) <> '' THEN 1 ELSE 0 END) AS with_phone
+            FROM users
+            """
+        )
+        total, with_phone = cursor.fetchone()
+
+    with_phone = with_phone or 0
+    total = total or 0
+    without_phone = total - with_phone
+
+    return {
+        "total": total,
+        "with_phone": with_phone,
+        "without_phone": without_phone,
+    }
+

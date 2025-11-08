@@ -47,6 +47,7 @@ def admin_main_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("تنظیمات ربات ⚙️", callback_data="panel:settings")],
+            [InlineKeyboardButton("آمار گیری 📊", callback_data="panel:stats")],
             [InlineKeyboardButton("بازگشت به ربات ⬅️", callback_data="panel:back")],
         ]
     )
@@ -88,7 +89,17 @@ USER_MENU_RESPONSES = {
     "وبینار ها": "وبینارهای جدید به زودی اعلام می‌شوند.",
     "دراپ لرنینگ": "دراپ لرنینگ به زودی فعال می‌شود.",
     "مشاوره رایگان": "مشاوران ما به زودی پاسخگوی شما خواهند بود.",
-    "خدمات": "لیست خدمات به زودی در دسترس خواهد بود.",
+    "خدمات": "\n".join(
+        [
+            "خدمات در دسترس:",
+            "• طراحی سایت",
+            "• تولید محتوا",
+            "• مشاوره فروش و بازاریابی",
+            "• کمپین فروش",
+            "• تیم سازی و منابع انسانی",
+            "• برندینگ",
+        ]
+    ),
 }
 
 
@@ -275,6 +286,19 @@ async def admin_panel_main_callback(
         )
         return ADMIN_PANEL_SETTINGS
 
+    if data == "panel:stats":
+        stats = database.get_user_stats()
+        text = "\n".join(
+            [
+                "آمار ربات:",
+                f"- کل کاربران: {stats['total']}",
+                f"- کاربران با شماره موبایل: {stats['with_phone']}",
+                f"- کاربران بدون شماره موبایل: {stats['without_phone']}",
+            ]
+        )
+        await query.edit_message_text(text, reply_markup=admin_main_keyboard())
+        return ADMIN_PANEL_MAIN
+
     if data == "panel:back":
         await query.edit_message_text("بازگشت به ربات.")
         await send_main_menu(update)
@@ -402,24 +426,58 @@ async def reply_with_admin_list(
     admins = list(database.list_admins())
     lines = []
 
-    for record in admins:
+    def number_to_emoji(n: int) -> str:
+        emojis = {
+            0: "0️⃣",
+            1: "1️⃣",
+            2: "2️⃣",
+            3: "3️⃣",
+            4: "4️⃣",
+            5: "5️⃣",
+            6: "6️⃣",
+            7: "7️⃣",
+            8: "8️⃣",
+            9: "9️⃣",
+            10: "🔟",
+        }
+        return emojis.get(n, f"{n}.")
+
+    for idx, record in enumerate(admins, start=1):
         phone_display = record["phone_number"] or "نامشخص"
         full_name = " ".join(
             part for part in (record["fname"], record["lname"]) if part
         ).strip() or "بدون نام"
         username = f"@{record['username']}" if record["username"] else "بدون نام کاربری"
         lines.append(
-            f"ID: {record['telegram_id']} | شماره: {phone_display} | نام: {full_name} | {username}"
+            "\n".join(
+                [
+                    number_to_emoji(idx),
+                    f"نام: {full_name}",
+                    f"یوزرنیم: {username}",
+                    f"شماره: {phone_display}",
+                ]
+            )
         )
 
-    for temp_admin in TEMP_ADMIN_IDS:
-        if not any(admin["telegram_id"] == temp_admin for admin in admins):
-            lines.append(f"ID: {temp_admin} | ادمین موقت (خروجی قابل ویرایش نیست)")
+    for temp_idx, temp_admin in enumerate(
+        [tid for tid in TEMP_ADMIN_IDS if not any(a["telegram_id"] == tid for a in admins)],
+        start=len(lines) + 1,
+    ):
+        lines.append(
+            "\n".join(
+                [
+                    number_to_emoji(temp_idx),
+                    "نام: ادمین موقت",
+                    "یوزرنیم: نامشخص",
+                    f"شماره: نامشخص",
+                ]
+            )
+        )
 
     if not lines:
         lines.append("ادمینی ثبت نشده است.")
 
-    text = "\n".join(lines)
+    text = "\n\n".join(lines)
 
     if edit_message and update.callback_query:
         await update.callback_query.message.reply_text(text)
