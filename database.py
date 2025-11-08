@@ -102,6 +102,26 @@ def upsert_user(
         )
 
 
+def ensure_user_record(
+    telegram_id: int,
+    fname: str,
+    lname: str,
+    username: str,
+) -> None:
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            """
+            INSERT INTO users (telegram_id, phone_number, fname, lname, username)
+            VALUES (?, '', ?, ?, ?)
+            ON CONFLICT(telegram_id) DO UPDATE SET
+                fname = excluded.fname,
+                lname = excluded.lname,
+                username = excluded.username
+            """,
+            (telegram_id, fname or "", lname or "", username or ""),
+        )
+
+
 def get_user(telegram_id: int) -> Optional[Dict[str, str]]:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
@@ -149,7 +169,15 @@ def get_user_by_phone(phone_number: str) -> Optional[Dict[str, str]]:
 def user_has_phone(telegram_id: int) -> bool:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
-            "SELECT 1 FROM users WHERE telegram_id = ? LIMIT 1", (telegram_id,)
+            """
+            SELECT 1
+            FROM users
+            WHERE telegram_id = ?
+              AND phone_number IS NOT NULL
+              AND TRIM(phone_number) <> ''
+            LIMIT 1
+            """,
+            (telegram_id,),
         )
         return cursor.fetchone() is not None
 
@@ -229,4 +257,34 @@ def get_user_stats() -> Dict[str, int]:
         "with_phone": with_phone,
         "without_phone": without_phone,
     }
+
+
+def iter_users(has_phone: Optional[bool] = None) -> Iterable[Dict[str, str]]:
+    query = """
+        SELECT telegram_id, phone_number, fname, lname, username
+        FROM users
+    """
+    params = ()
+
+    if has_phone is True:
+        query += """
+        WHERE phone_number IS NOT NULL AND TRIM(phone_number) <> ''
+        """
+    elif has_phone is False:
+        query += """
+        WHERE phone_number IS NULL OR TRIM(phone_number) = ''
+        """
+
+    query += " ORDER BY telegram_id"
+
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(query, params)
+        for telegram_id, phone_number, fname, lname, username in cursor.fetchall():
+            yield {
+                "telegram_id": telegram_id,
+                "phone_number": phone_number or "",
+                "fname": fname or "",
+                "lname": lname or "",
+                "username": username or "",
+            }
 

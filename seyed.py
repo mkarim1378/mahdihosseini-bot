@@ -11,7 +11,7 @@ from telegram import (
     ReplyKeyboardRemove,
     Update,
 )
-from telegram.constants import ParseMode
+from telegram.constants import ChatMemberStatus, ParseMode
 from telegram.error import TelegramError
 from telegram.ext import (
     Application,
@@ -33,7 +33,18 @@ TEMP_ADMIN_IDS = {234368567}
     ADMIN_PANEL_MANAGE,
     ADMIN_PANEL_ADD_PHONE,
     ADMIN_PANEL_REMOVE_PHONE,
-) = range(5)
+    ADMIN_PANEL_BROADCAST_MENU,
+    ADMIN_PANEL_BROADCAST_MESSAGE,
+) = range(7)
+
+CHANNEL_INVITE_LINK = "https://t.me/+jvMlIZcElh43YTNk"
+CHANNEL_ID: Optional[int] = None
+MEMBERSHIP_VERIFY_CALLBACK = "verify_membership"
+BROADCAST_OPTIONS = {
+    "broadcast:all": {"label": "همه کاربران", "filter": None},
+    "broadcast:with_phone": {"label": "کاربران دارای شماره", "filter": True},
+    "broadcast:without_phone": {"label": "کاربران بدون شماره", "filter": False},
+}
 
 REQUEST_CONTACT_KEYBOARD = ReplyKeyboardMarkup(
     keyboard=[[KeyboardButton("ارسال شماره موبایل", request_contact=True)]],
@@ -41,6 +52,19 @@ REQUEST_CONTACT_KEYBOARD = ReplyKeyboardMarkup(
     one_time_keyboard=True,
     input_field_placeholder="لطفاً شماره موبایل خود را ارسال کنید",
 )
+
+
+def membership_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🔗 عضویت در کانال", url=CHANNEL_INVITE_LINK)],
+            [
+                InlineKeyboardButton(
+                    "✅ تایید عضویت", callback_data=MEMBERSHIP_VERIFY_CALLBACK
+                )
+            ],
+        ]
+    )
 
 
 def admin_main_keyboard() -> InlineKeyboardMarkup:
@@ -61,6 +85,7 @@ def admin_settings_keyboard() -> InlineKeyboardMarkup:
                     "مدیریت ادمین‌ها 🧑‍💼", callback_data="settings:manage"
                 )
             ],
+            [InlineKeyboardButton("پیام همگانی 📢", callback_data="settings:broadcast")],
             [InlineKeyboardButton("بازگشت 🔙", callback_data="settings:back")],
         ]
     )
@@ -82,6 +107,33 @@ def admin_manage_keyboard() -> InlineKeyboardMarkup:
 def admin_add_cancel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [[InlineKeyboardButton("انصراف 🔙", callback_data="add:cancel")]]
+    )
+
+
+def admin_broadcast_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("ارسال به همه کاربران", callback_data="broadcast:all")],
+            [
+                InlineKeyboardButton(
+                    "ارسال به کاربران دارای شماره",
+                    callback_data="broadcast:with_phone",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "ارسال به کاربران بدون شماره",
+                    callback_data="broadcast:without_phone",
+                )
+            ],
+            [InlineKeyboardButton("بازگشت 🔙", callback_data="broadcast:back")],
+        ]
+    )
+
+
+def admin_broadcast_cancel_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("لغو ارسال 🔙", callback_data="broadcast:cancel")]]
     )
 
 USER_MENU_RESPONSES = {
@@ -126,8 +178,32 @@ def get_bot_token() -> str:
     return token
 
 
+def get_channel_id() -> int:
+    raw = os.getenv("CHANNEL_ID")
+    if not raw:
+        raise RuntimeError(
+            "CHANNEL_ID is missing. Set it in the environment or in the .env file."
+        )
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise RuntimeError("CHANNEL_ID must be a valid integer chat ID.") from exc
+
+
 def is_admin_user(telegram_id: int) -> bool:
     return telegram_id in TEMP_ADMIN_IDS or database.is_admin(telegram_id)
+
+
+def ensure_user_record(update: Update) -> None:
+    user = update.effective_user
+    if not user:
+        return
+    database.ensure_user_record(
+        telegram_id=user.id,
+        fname=user.first_name or "",
+        lname=user.last_name or "",
+        username=user.username or "",
+    )
 
 
 async def ensure_registered_user(
@@ -152,6 +228,100 @@ async def prompt_for_contact(update: Update) -> None:
         )
 
 
+async def is_user_in_channel(
+    context: ContextTypes.DEFAULT_TYPE, user_id: int
+) -> bool:
+    if CHANNEL_ID is None:
+        raise RuntimeError("CHANNEL_ID is not configured.")
+    try:
+        member = await context.bot.get_chat_member(CHANNEL_ID, user_id)
+    except TelegramError as exc:
+        logging.warning("Failed to fetch chat member %s: %s", user_id, exc)
+        return False
+
+    return member.status in {
+        ChatMemberStatus.OWNER,
+        ChatMemberStatus.ADMINISTRATOR,
+        ChatMemberStatus.MEMBER,
+        ChatMemberStatus.RESTRICTED,
+    }
+
+
+async def prompt_for_channel_membership(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    already_prompted: bool = False,
+) -> None:
+    message_text = (
+        "برای استفاده از ربات، ابتدا باید در کانال خصوصی ما عضو شوید."
+        if not already_prompted
+        else "به نظر می‌رسد هنوز عضو کانال نشده‌ای. لطفاً پس از عضویت روی «تایید عضویت» بزن."
+    )
+
+    if update.callback_query:
+        await update.callback_query.edit_message_text(
+            message_text, reply_markup=membership_keyboard()
+        )
+    elif update.message:
+        await update.message.reply_text(
+            message_text,
+            reply_markup=membership_keyboard(),
+        )
+    else:
+        chat = update.effective_chat
+        if chat:
+            await context.bot.send_message(
+                chat_id=chat.id,
+                text=message_text,
+                reply_markup=membership_keyboard(),
+            )
+
+
+async def ensure_channel_membership(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> bool:
+    ensure_user_record(update)
+
+    user = update.effective_user
+    if not user:
+        return False
+
+    if await is_user_in_channel(context, user.id):
+        return True
+
+    await prompt_for_channel_membership(update, context)
+    return False
+
+
+async def handle_membership_verification(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    ensure_user_record(update)
+
+    user = update.effective_user
+    if not user:
+        return
+
+    if await is_user_in_channel(context, user.id):
+        await query.edit_message_text("عضویت شما تایید شد ✅")
+        if database.user_has_phone(user.id):
+            await send_main_menu(update, context)
+        else:
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text="عضویت تایید شد. لطفاً شماره موبایل خود را از طریق دکمه زیر ارسال کنید.",
+                reply_markup=REQUEST_CONTACT_KEYBOARD,
+            )
+    else:
+        await prompt_for_channel_membership(
+            update, context, already_prompted=True
+        )
+
+
 def build_main_menu_keyboard(user_id: Optional[int]) -> ReplyKeyboardMarkup:
     rows = [
         [KeyboardButton("Case Studies")],
@@ -165,19 +335,31 @@ def build_main_menu_keyboard(user_id: Optional[int]) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
 
-async def send_main_menu(update: Update) -> None:
+async def send_main_menu(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     user_id = update.effective_user.id if update.effective_user else None
     if update.message:
         await update.message.reply_text(
             "سلام! یکی از گزینه‌های زیر را انتخاب کن:",
             reply_markup=build_main_menu_keyboard(user_id),
         )
+    else:
+        chat = update.effective_chat
+        if chat:
+            await context.bot.send_message(
+                chat_id=chat.id,
+                text="سلام! یکی از گزینه‌های زیر را انتخاب کن:",
+                reply_markup=build_main_menu_keyboard(user_id),
+            )
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await ensure_channel_membership(update, context):
+        return
     if not await ensure_registered_user(update):
         return
-    await send_main_menu(update)
+    await send_main_menu(update, context)
 
 
 def extract_phone_last10(raw_phone: str) -> Optional[str]:
@@ -189,6 +371,9 @@ def extract_phone_last10(raw_phone: str) -> Optional[str]:
 
 async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not update.message.contact:
+        return
+
+    if not await ensure_channel_membership(update, context):
         return
 
     user = update.effective_user
@@ -220,12 +405,14 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "شماره موبایل شما ذخیره شد.",
         reply_markup=ReplyKeyboardRemove(),
     )
-    await send_main_menu(update)
+    await send_main_menu(update, context)
 
 
 async def handle_menu_selection(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
+    if not await ensure_channel_membership(update, context):
+        return
     if not await ensure_registered_user(update):
         return
 
@@ -242,6 +429,9 @@ async def handle_menu_selection(
 async def admin_panel_entry(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
     user = update.effective_user
     if not user or not is_admin_user(user.id):
         if update.message:
@@ -272,6 +462,9 @@ async def admin_panel_main_callback(
     query = update.callback_query
     await query.answer()
 
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
     user = update.effective_user
     if not user or not is_admin_user(user.id):
         await query.edit_message_text("دسترسی شما قطع شده است.")
@@ -301,7 +494,7 @@ async def admin_panel_main_callback(
 
     if data == "panel:back":
         await query.edit_message_text("بازگشت به ربات.")
-        await send_main_menu(update)
+        await send_main_menu(update, context)
         return ConversationHandler.END
 
     await query.answer("گزینه نامعتبر است.", show_alert=True)
@@ -313,6 +506,9 @@ async def admin_panel_settings_callback(
 ) -> int:
     query = update.callback_query
     await query.answer()
+
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
 
     user = update.effective_user
     if not user or not is_admin_user(user.id):
@@ -327,6 +523,13 @@ async def admin_panel_settings_callback(
             reply_markup=admin_manage_keyboard(),
         )
         return ADMIN_PANEL_MANAGE
+
+    if data == "settings:broadcast":
+        await query.edit_message_text(
+            "پیام را برای کدام گروه ارسال می‌کنید؟",
+            reply_markup=admin_broadcast_keyboard(),
+        )
+        return ADMIN_PANEL_BROADCAST_MENU
 
     if data == "settings:back":
         await query.edit_message_text(
@@ -344,6 +547,9 @@ async def admin_panel_manage_callback(
 ) -> int:
     query = update.callback_query
     await query.answer()
+
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
 
     user = update.effective_user
     if not user or not is_admin_user(user.id):
@@ -380,6 +586,130 @@ async def admin_panel_manage_callback(
 
     await query.answer("گزینه نامعتبر است.", show_alert=True)
     return ADMIN_PANEL_MANAGE
+
+
+async def admin_panel_broadcast_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    query = update.callback_query
+    await query.answer()
+
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
+    user = update.effective_user
+    if not user or not is_admin_user(user.id):
+        await query.edit_message_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    data = query.data
+
+    if data == "broadcast:back":
+        await query.edit_message_text(
+            "بخش تنظیمات ربات:",
+            reply_markup=admin_settings_keyboard(),
+        )
+        return ADMIN_PANEL_SETTINGS
+
+    option = BROADCAST_OPTIONS.get(data)
+    if option is None:
+        await query.answer("گزینه نامعتبر است.", show_alert=True)
+        return ADMIN_PANEL_BROADCAST_MENU
+
+    context.user_data["broadcast_target"] = data
+
+    await query.edit_message_text(
+        f"متن پیام مورد نظر برای «{option['label']}» را ارسال کنید.",
+        reply_markup=admin_broadcast_cancel_keyboard(),
+    )
+    return ADMIN_PANEL_BROADCAST_MESSAGE
+
+
+async def admin_broadcast_cancel_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    query = update.callback_query
+    await query.answer()
+
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
+    user = update.effective_user
+    if not user or not is_admin_user(user.id):
+        await query.edit_message_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    context.user_data.pop("broadcast_target", None)
+
+    await query.edit_message_text(
+        "ارسال پیام همگانی لغو شد.",
+        reply_markup=admin_settings_keyboard(),
+    )
+    return ADMIN_PANEL_SETTINGS
+
+
+async def admin_broadcast_message(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
+    if not is_admin_user(update.effective_user.id):
+        await update.message.reply_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    target_key = context.user_data.get("broadcast_target")
+    option = BROADCAST_OPTIONS.get(target_key)
+    if option is None:
+        await update.message.reply_text(
+            "حالت ارسال نامعتبر است.",
+            reply_markup=admin_settings_keyboard(),
+        )
+        return ADMIN_PANEL_SETTINGS
+
+    message_text = update.message.text
+    if not message_text:
+        await update.message.reply_text("لطفاً یک پیام متنی ارسال کنید.")
+        return ADMIN_PANEL_BROADCAST_MESSAGE
+
+    recipients = list(database.iter_users(has_phone=option["filter"]))
+
+    if not recipients:
+        await update.message.reply_text(
+            f"هیچ کاربری در گروه «{option['label']}» یافت نشد.",
+            reply_markup=admin_settings_keyboard(),
+        )
+        context.user_data.pop("broadcast_target", None)
+        return ADMIN_PANEL_SETTINGS
+
+    sent = 0
+    failed = 0
+    for record in recipients:
+        try:
+            await context.bot.send_message(
+                chat_id=record["telegram_id"],
+                text=message_text,
+            )
+            sent += 1
+        except TelegramError as exc:
+            logging.warning(
+                "Failed to broadcast to %s: %s", record["telegram_id"], exc
+            )
+            failed += 1
+
+    context.user_data.pop("broadcast_target", None)
+
+    summary_lines = [
+        f"پیام برای «{option['label']}» ارسال شد.",
+        f"کل مخاطبان: {len(recipients)}",
+        f"موفق: {sent}",
+        f"ناموفق: {failed}",
+    ]
+    await update.message.reply_text(
+        "\n".join(summary_lines),
+        reply_markup=admin_settings_keyboard(),
+    )
+    return ADMIN_PANEL_SETTINGS
 
 
 async def show_remove_admin_menu(
@@ -460,7 +790,11 @@ async def reply_with_admin_list(
         )
 
     for temp_idx, temp_admin in enumerate(
-        [tid for tid in TEMP_ADMIN_IDS if not any(a["telegram_id"] == tid for a in admins)],
+        sorted(
+            tid
+            for tid in TEMP_ADMIN_IDS
+            if not any(a["telegram_id"] == tid for a in admins)
+        ),
         start=len(lines) + 1,
     ):
         lines.append(
@@ -492,6 +826,9 @@ async def handle_remove_admin_selection(
 ) -> int:
     query = update.callback_query
     await query.answer()
+
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
 
     user = update.effective_user
     if not user or not is_admin_user(user.id):
@@ -544,6 +881,9 @@ async def handle_remove_admin_selection(
 async def admin_add_phone(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
     if not await ensure_registered_user(update):
         return ConversationHandler.END
 
@@ -604,6 +944,15 @@ async def admin_add_cancel_callback(
 ) -> int:
     query = update.callback_query
     await query.answer()
+
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
+    user = update.effective_user
+    if not user or not is_admin_user(user.id):
+        await query.edit_message_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
     await query.edit_message_text(
         "بخش مدیریت ادمین‌ها:",
         reply_markup=admin_manage_keyboard(),
@@ -641,12 +990,12 @@ async def admin_cancel(
         await update.message.reply_text(
             "خروج از پنل ادمین.",
         )
-        await send_main_menu(update)
+        await send_main_menu(update, context)
     elif update.callback_query:
         query = update.callback_query
         await query.answer()
         await query.edit_message_text("خروج از پنل ادمین.")
-        await send_main_menu(update)
+        await send_main_menu(update, context)
     return ConversationHandler.END
 
 
@@ -654,6 +1003,8 @@ def main() -> None:
     load_env()
     database.init_db()
     token = get_bot_token()
+    global CHANNEL_ID
+    CHANNEL_ID = get_channel_id()
 
     logging.basicConfig(
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -678,6 +1029,19 @@ def main() -> None:
             ADMIN_PANEL_MANAGE: [
                 CallbackQueryHandler(admin_panel_manage_callback, pattern="^manage:"),
             ],
+            ADMIN_PANEL_BROADCAST_MENU: [
+                CallbackQueryHandler(
+                    admin_panel_broadcast_callback, pattern="^broadcast:"
+                ),
+            ],
+            ADMIN_PANEL_BROADCAST_MESSAGE: [
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND, admin_broadcast_message
+                ),
+                CallbackQueryHandler(
+                    admin_broadcast_cancel_callback, pattern="^broadcast:cancel$"
+                ),
+            ],
             ADMIN_PANEL_ADD_PHONE: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, admin_add_phone),
                 CallbackQueryHandler(admin_add_cancel_callback, pattern="^add:cancel$"),
@@ -690,6 +1054,12 @@ def main() -> None:
         allow_reentry=True,
     )
 
+    application.add_handler(
+        CallbackQueryHandler(
+            handle_membership_verification,
+            pattern=f"^{MEMBERSHIP_VERIFY_CALLBACK}$",
+        )
+    )
     application.add_handler(CommandHandler("start", start))
     application.add_handler(admin_panel_handler)
     application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
