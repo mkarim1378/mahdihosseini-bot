@@ -434,7 +434,6 @@ async def handle_membership_verification(
 
 def build_main_menu_keyboard(user_id: Optional[int]) -> ReplyKeyboardMarkup:
     rows = [[KeyboardButton(title)] for title in CORE_MENU_BUTTONS]
-    rows.extend([[KeyboardButton(title)] for title in SERVICE_BUTTONS])
     if user_id is not None and is_admin_user(user_id):
         rows.append([KeyboardButton("🛠️ پنل ادمین")])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
