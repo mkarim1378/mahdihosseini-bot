@@ -51,6 +51,7 @@ CORE_MENU_BUTTONS = [
     "وبینار ها",
     "دراپ لرنینگ",
     "مشاوره رایگان",
+    "خدمات",
 ]
 
 SERVICE_BUTTONS = [
@@ -81,6 +82,13 @@ def membership_keyboard() -> InlineKeyboardMarkup:
             ],
         ]
     )
+
+
+SERVICE_MENU_KEYBOARD = ReplyKeyboardMarkup(
+    keyboard=[[KeyboardButton(title)] for title in SERVICE_BUTTONS]
+    + [[KeyboardButton("بازگشت")]],
+    resize_keyboard=True,
+)
 
 
 def admin_main_keyboard() -> InlineKeyboardMarkup:
@@ -158,11 +166,14 @@ def admin_broadcast_cancel_keyboard() -> InlineKeyboardMarkup:
         [[InlineKeyboardButton("لغو ارسال 🔙", callback_data="broadcast:cancel")]]
     )
 
-USER_MENU_RESPONSES = {
+CORE_MENU_RESPONSES = {
     "Case Studies": "بخش Case Studies به زودی در دسترس قرار می‌گیرد.",
     "وبینار ها": "وبینارهای جدید به زودی اعلام می‌شوند.",
     "دراپ لرنینگ": "دراپ لرنینگ به زودی فعال می‌شود.",
     "مشاوره رایگان": "مشاوران ما به زودی پاسخگوی شما خواهند بود.",
+}
+
+SERVICE_RESPONSES = {
     "طراحی سایت": "خدمت طراحی سایت به زودی در دسترس قرار می‌گیرد.",
     "تولید محتوا": "خدمت تولید محتوا به زودی در دسترس قرار می‌گیرد.",
     "مشاوره فروش و بازاریابی": "خدمت مشاوره فروش و بازاریابی به زودی در دسترس قرار می‌گیرد.",
@@ -520,11 +531,29 @@ async def handle_menu_selection(
     if update.message:
         user_id = update.effective_user.id if update.effective_user else None
         text = update.message.text or ""
-        response = USER_MENU_RESPONSES.get(text, "این بخش به زودی در دسترس قرار می‌گیرد.")
-        await update.message.reply_text(
-            response,
-            reply_markup=build_main_menu_keyboard(user_id),
-        )
+        if text == "خدمات":
+            await update.message.reply_text(
+                "یکی از خدمات زیر را انتخاب کن:",
+                reply_markup=SERVICE_MENU_KEYBOARD,
+            )
+        elif text == "بازگشت":
+            await update.message.reply_text(
+                "بازگشت به منوی اصلی.",
+                reply_markup=build_main_menu_keyboard(user_id),
+            )
+        elif text in SERVICE_RESPONSES:
+            await update.message.reply_text(
+                SERVICE_RESPONSES[text],
+                reply_markup=SERVICE_MENU_KEYBOARD,
+            )
+        else:
+            response = CORE_MENU_RESPONSES.get(
+                text, "این بخش به زودی در دسترس قرار می‌گیرد."
+            )
+            await update.message.reply_text(
+                response,
+                reply_markup=build_main_menu_keyboard(user_id),
+            )
 
 
 async def admin_panel_entry(
