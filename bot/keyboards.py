@@ -1,0 +1,128 @@
+"""Keyboard builders used across the bot."""
+
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+)
+
+from .config import CHANNEL_INVITE_LINK
+from .constants import MEMBERSHIP_VERIFY_CALLBACK, SERVICE_BUTTONS
+
+REQUEST_CONTACT_KEYBOARD = ReplyKeyboardMarkup(
+    keyboard=[[KeyboardButton("ارسال شماره موبایل", request_contact=True)]],
+    resize_keyboard=True,
+    one_time_keyboard=True,
+    input_field_placeholder="لطفاً شماره موبایل خود را ارسال کنید",
+)
+
+SERVICE_MENU_KEYBOARD = ReplyKeyboardMarkup(
+    keyboard=[[KeyboardButton(title)] for title in SERVICE_BUTTONS]
+    + [[KeyboardButton("بازگشت")]],
+    resize_keyboard=True,
+)
+
+
+def membership_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🔗 عضویت در کانال", url=CHANNEL_INVITE_LINK)],
+            [
+                InlineKeyboardButton(
+                    "✅ تایید عضویت", callback_data=MEMBERSHIP_VERIFY_CALLBACK
+                )
+            ],
+        ]
+    )
+
+
+def admin_main_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("تنظیمات ربات ⚙️", callback_data="panel:settings")],
+            [InlineKeyboardButton("آمار گیری 📊", callback_data="panel:stats")],
+            [InlineKeyboardButton("بازگشت به ربات ⬅️", callback_data="panel:back")],
+        ]
+    )
+
+
+def admin_settings_keyboard(require_phone: bool) -> InlineKeyboardMarkup:
+    toggle_label = (
+        "اجبار شماره موبایل: روشن ✅" if require_phone else "اجبار شماره موبایل: خاموش ❌"
+    )
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "مدیریت ادمین‌ها 🧑‍💼", callback_data="settings:manage"
+                )
+            ],
+            [InlineKeyboardButton(toggle_label, callback_data="settings:toggle_phone")],
+            [InlineKeyboardButton("پیام همگانی 📢", callback_data="settings:broadcast")],
+            [InlineKeyboardButton("بازگشت 🔙", callback_data="settings:back")],
+        ]
+    )
+
+
+def admin_manage_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("افزودن ادمین ➕", callback_data="manage:add"),
+                InlineKeyboardButton("حذف ادمین ➖", callback_data="manage:remove"),
+            ],
+            [InlineKeyboardButton("لیست ادمین‌ها 📋", callback_data="manage:list")],
+            [InlineKeyboardButton("بازگشت 🔙", callback_data="manage:back")],
+        ]
+    )
+
+
+def admin_add_cancel_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("انصراف 🔙", callback_data="add:cancel")]]
+    )
+
+
+def admin_broadcast_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("ارسال به همه کاربران", callback_data="broadcast:all")],
+            [
+                InlineKeyboardButton(
+                    "ارسال به کاربران دارای شماره",
+                    callback_data="broadcast:with_phone",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "ارسال به کاربران بدون شماره",
+                    callback_data="broadcast:without_phone",
+                )
+            ],
+            [InlineKeyboardButton("بازگشت 🔙", callback_data="broadcast:back")],
+        ]
+    )
+
+
+def admin_broadcast_cancel_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("لغو ارسال 🔙", callback_data="broadcast:cancel")]]
+    )
+
+
+__all__ = [
+    "REQUEST_CONTACT_KEYBOARD",
+    "SERVICE_MENU_KEYBOARD",
+    "membership_keyboard",
+    "admin_main_keyboard",
+    "admin_settings_keyboard",
+    "admin_manage_keyboard",
+    "admin_add_cancel_keyboard",
+    "admin_broadcast_keyboard",
+    "admin_broadcast_cancel_keyboard",
+    "ReplyKeyboardRemove",
+]
+
+
