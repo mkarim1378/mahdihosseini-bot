@@ -26,8 +26,10 @@ from ..constants import (
     ADMIN_PANEL_SETTINGS,
     ADMIN_PANEL_WEBINAR_ADD_DESCRIPTION,
     ADMIN_PANEL_WEBINAR_ADD_LINK,
+    ADMIN_PANEL_WEBINAR_ADD_TITLE,
     ADMIN_PANEL_WEBINAR_EDIT_DESCRIPTION,
     ADMIN_PANEL_WEBINAR_EDIT_LINK,
+    ADMIN_PANEL_WEBINAR_EDIT_TITLE,
     ADMIN_PANEL_WEBINAR_MENU,
     BROADCAST_OPTIONS,
     TEMP_ADMIN_IDS,
@@ -403,7 +405,8 @@ async def show_webinar_menu(
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    _webinar_preview_label(webinar["description"]),
+                    (webinar["title"] or "").strip()
+                    or _webinar_preview_label(webinar["description"]),
                     callback_data=f"webinar:select:{webinar['id']}",
                 )
             ]
@@ -432,6 +435,8 @@ async def show_selected_webinar(
         text_parts.append("")
     text_parts.append("مشخصات وبینار انتخاب‌شده:")
     text_parts.append("")
+    text_parts.append(f"عنوان: {webinar['title'] or 'وبینار بدون عنوان'}")
+    text_parts.append("")
     text_parts.append(webinar["description"])
     text_parts.append("")
     text_parts.append("لینک ثبت‌نام:")
@@ -440,6 +445,7 @@ async def show_selected_webinar(
 
     keyboard = InlineKeyboardMarkup(
         [
+            [InlineKeyboardButton("ویرایش عنوان 🏷️", callback_data="webinar:edit_title")],
             [InlineKeyboardButton("ویرایش توضیحات 📝", callback_data="webinar:edit_desc")],
             [InlineKeyboardButton("ویرایش لینک 🔗", callback_data="webinar:edit_link")],
             [InlineKeyboardButton("حذف وبینار 🗑️", callback_data="webinar:delete")],
@@ -484,10 +490,10 @@ async def admin_panel_webinar_callback(
     if data == "webinar:add":
         context.user_data["webinar_flow"] = {}
         await query.edit_message_text(
-            "توضیحات وبینار را ارسال کنید.",
+            "عنوان وبینار را ارسال کنید.",
             reply_markup=WEBINAR_CANCEL_MARKUP,
         )
-        return ADMIN_PANEL_WEBINAR_ADD_DESCRIPTION
+        return ADMIN_PANEL_WEBINAR_ADD_TITLE
 
     if data.startswith("webinar:select:"):
         try:
@@ -506,6 +512,19 @@ async def admin_panel_webinar_callback(
         context.user_data["webinar_selected"] = webinar_id
         await show_selected_webinar(query, webinar)
         return ADMIN_PANEL_WEBINAR_MENU
+
+    if data == "webinar:edit_title":
+        webinar_id = context.user_data.get("webinar_selected")
+        if not webinar_id:
+            await query.answer("ابتدا وبینار را انتخاب کنید.", show_alert=True)
+            await show_webinar_menu(query, context)
+            return ADMIN_PANEL_WEBINAR_MENU
+        context.user_data["webinar_flow"] = {"webinar_id": webinar_id}
+        await query.edit_message_text(
+            "عنوان جدید وبینار را ارسال کنید.",
+            reply_markup=WEBINAR_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_WEBINAR_EDIT_TITLE
 
     if data == "webinar:edit_desc":
         webinar_id = context.user_data.get("webinar_selected")
@@ -567,6 +586,15 @@ async def admin_webinar_add_description(
         await update.message.reply_text("دسترسی شما قطع شده است.")
         return ConversationHandler.END
 
+    flow = context.user_data.get("webinar_flow") or {}
+    title = flow.get("title")
+    if not title:
+        await update.message.reply_text(
+            "عنوان وبینار مشخص نیست. لطفاً دوباره شروع کن.",
+            reply_markup=WEBINAR_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_WEBINAR_ADD_TITLE
+
     description = (update.message.text or "").strip()
     if not description:
         await update.message.reply_text(
@@ -575,7 +603,8 @@ async def admin_webinar_add_description(
         )
         return ADMIN_PANEL_WEBINAR_ADD_DESCRIPTION
 
-    context.user_data["webinar_flow"] = {"description": description}
+    flow["description"] = description
+    context.user_data["webinar_flow"] = flow
     await update.message.reply_text(
         "لینک ثبت‌نام وبینار را ارسال کن (با http:// یا https://).",
         reply_markup=WEBINAR_CANCEL_MARKUP,
@@ -605,15 +634,16 @@ async def admin_webinar_add_link(
         return ADMIN_PANEL_WEBINAR_ADD_LINK
 
     flow = context.user_data.get("webinar_flow") or {}
+    title = flow.get("title")
     description = flow.get("description")
-    if not description:
+    if not title or not description:
         await update.message.reply_text(
             "اطلاعات وبینار ناقص است. لطفاً دوباره تلاش کن.",
             reply_markup=WEBINAR_CANCEL_MARKUP,
         )
         return ADMIN_PANEL_WEBINAR_ADD_LINK
 
-    database.create_webinar(description, link)
+    database.create_webinar(title, description, link)
     context.user_data.pop("webinar_flow", None)
     await update.message.reply_text("وبینار جدید ثبت شد ✅")
     await show_webinar_menu(update.effective_chat.id, context)
@@ -684,6 +714,69 @@ async def admin_webinar_edit_link(
     database.update_webinar(webinar_id, registration_link=link)
     context.user_data.pop("webinar_flow", None)
     await update.message.reply_text("لینک ثبت‌نام به‌روزرسانی شد ✅")
+    await show_webinar_menu(update.effective_chat.id, context)
+    return ADMIN_PANEL_WEBINAR_MENU
+
+
+async def admin_webinar_add_title(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
+    if not await ensure_registered_user(update, context):
+        return ConversationHandler.END
+
+    if not is_admin_user(update.effective_user.id):
+        await update.message.reply_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    title = (update.message.text or "").strip()
+    if not title:
+        await update.message.reply_text(
+            "عنوان وبینار نمی‌تواند خالی باشد. لطفاً دوباره تلاش کن.",
+            reply_markup=WEBINAR_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_WEBINAR_ADD_TITLE
+
+    context.user_data["webinar_flow"] = {"title": title}
+    await update.message.reply_text(
+        "توضیحات وبینار را ارسال کن.",
+        reply_markup=WEBINAR_CANCEL_MARKUP,
+    )
+    return ADMIN_PANEL_WEBINAR_ADD_DESCRIPTION
+
+
+async def admin_webinar_edit_title(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
+    if not await ensure_registered_user(update, context):
+        return ConversationHandler.END
+
+    if not is_admin_user(update.effective_user.id):
+        await update.message.reply_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    webinar_id = context.user_data.get("webinar_selected")
+    if not webinar_id:
+        await update.message.reply_text("ابتدا وبینار را از فهرست انتخاب کن.")
+        await show_webinar_menu(update.effective_chat.id, context)
+        return ADMIN_PANEL_WEBINAR_MENU
+
+    title = (update.message.text or "").strip()
+    if not title:
+        await update.message.reply_text(
+            "عنوان نمی‌تواند خالی باشد. دوباره ارسال کن.",
+            reply_markup=WEBINAR_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_WEBINAR_EDIT_TITLE
+
+    database.update_webinar(webinar_id, title=title)
+    context.user_data.pop("webinar_flow", None)
+    await update.message.reply_text("عنوان وبینار به‌روزرسانی شد ✅")
     await show_webinar_menu(update.effective_chat.id, context)
     return ADMIN_PANEL_WEBINAR_MENU
 

@@ -126,7 +126,32 @@ async def handle_menu_selection(
                 "یکی از خدمات زیر را انتخاب کن:",
                 reply_markup=SERVICE_MENU_KEYBOARD,
             )
-        elif text == "وبینار ها":
+        webinar_map = context.user_data.get("webinar_menu")
+        if webinar_map and text in webinar_map:
+            webinar = database.get_webinar(webinar_map[text])
+            if not webinar:
+                await update.message.reply_text(
+                    "این وبینار دیگر در دسترس نیست.",
+                    reply_markup=build_main_menu_keyboard(user_id),
+                )
+                context.user_data.pop("webinar_menu", None)
+                return
+
+            keyboard = InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            "ثبت‌نام در وبینار", url=webinar["registration_link"]
+                        )
+                    ]
+                ]
+            )
+            await update.message.reply_text(
+                webinar["description"], reply_markup=keyboard
+            )
+            return
+
+        if text == "وبینار ها":
             webinars = list(database.list_webinars())
             if not webinars:
                 await update.message.reply_text(
@@ -135,24 +160,28 @@ async def handle_menu_selection(
                 )
                 return
 
-            for webinar in webinars:
-                keyboard = InlineKeyboardMarkup(
-                    [
-                        [
-                            InlineKeyboardButton(
-                                "ثبت‌نام در وبینار", url=webinar["registration_link"]
-                            )
-                        ]
-                    ]
-                )
-                await update.message.reply_text(webinar["description"], reply_markup=keyboard)
-
+            webinar_keyboard = ReplyKeyboardMarkup(
+                [[KeyboardButton(webinar["title"] or "وبینار بدون عنوان")] for webinar in webinars]
+                + [[KeyboardButton("بازگشت")]],
+                resize_keyboard=True,
+            )
+            context.user_data["webinar_menu"] = {
+                (webinar["title"] or "وبینار بدون عنوان"): webinar["id"]
+                for webinar in webinars
+            }
             await update.message.reply_text(
-                "برای بازگشت دکمه موردنظر را انتخاب کن.",
-                reply_markup=build_main_menu_keyboard(user_id),
+                "یکی از وبینارهای زیر را انتخاب کن:",
+                reply_markup=webinar_keyboard,
             )
             return
-        elif text == "بازگشت":
+
+        if text == "بازگشت":
+            if context.user_data.pop("webinar_menu", None):
+                await update.message.reply_text(
+                    "بازگشت به منوی اصلی.",
+                    reply_markup=build_main_menu_keyboard(user_id),
+                )
+                return
             await update.message.reply_text(
                 "بازگشت به منوی اصلی.",
                 reply_markup=build_main_menu_keyboard(user_id),

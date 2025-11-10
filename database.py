@@ -34,12 +34,14 @@ def init_db() -> None:
             """
             CREATE TABLE IF NOT EXISTS webinars (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
                 description TEXT NOT NULL,
                 registration_link TEXT NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """
         )
+        _ensure_webinars_schema(conn)
 
 
 def _ensure_users_schema(conn: sqlite3.Connection) -> None:
@@ -87,6 +89,33 @@ def _ensure_users_schema(conn: sqlite3.Connection) -> None:
                 ADD COLUMN {column_name} TEXT DEFAULT ''
                 """
             )
+
+
+def _ensure_webinars_schema(conn: sqlite3.Connection) -> None:
+    columns = {
+        row[1]: {"type": row[2], "notnull": row[3], "default": row[4]}
+        for row in conn.execute("PRAGMA table_info(webinars)")
+    }
+    if "title" not in columns:
+        conn.execute(
+            """
+            ALTER TABLE webinars
+            ADD COLUMN title TEXT DEFAULT ''
+            """
+        )
+        conn.execute(
+            """
+            UPDATE webinars
+            SET title = CASE
+                WHEN TRIM(title) = '' OR title IS NULL THEN
+                    CASE
+                        WHEN LENGTH(description) <= 40 THEN description
+                        ELSE SUBSTR(description, 1, 40)
+                    END
+                ELSE title
+            END
+            """
+        )
 
 
 def upsert_user(
@@ -303,7 +332,7 @@ def list_webinars() -> Iterable[Dict[str, str]]:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
             """
-            SELECT id, description, registration_link, created_at
+            SELECT id, title, description, registration_link, created_at
             FROM webinars
             ORDER BY created_at DESC, id DESC
             """
@@ -311,6 +340,7 @@ def list_webinars() -> Iterable[Dict[str, str]]:
         for webinar_id, description, registration_link, created_at in cursor.fetchall():
             yield {
                 "id": webinar_id,
+                "title": title,
                 "description": description,
                 "registration_link": registration_link,
                 "created_at": created_at,
@@ -321,7 +351,7 @@ def get_webinar(webinar_id: int) -> Optional[Dict[str, str]]:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
             """
-            SELECT id, description, registration_link, created_at
+            SELECT id, title, description, registration_link, created_at
             FROM webinars
             WHERE id = ?
             """,
@@ -332,20 +362,21 @@ def get_webinar(webinar_id: int) -> Optional[Dict[str, str]]:
         return None
     return {
         "id": row[0],
-        "description": row[1],
-        "registration_link": row[2],
-        "created_at": row[3],
+        "title": row[1],
+        "description": row[2],
+        "registration_link": row[3],
+        "created_at": row[4],
     }
 
 
-def create_webinar(description: str, registration_link: str) -> int:
+def create_webinar(title: str, description: str, registration_link: str) -> int:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
             """
-            INSERT INTO webinars (description, registration_link)
-            VALUES (?, ?)
+            INSERT INTO webinars (title, description, registration_link)
+            VALUES (?, ?, ?)
             """,
-            (description, registration_link),
+            (title, description, registration_link),
         )
         return cursor.lastrowid
 
@@ -353,11 +384,15 @@ def create_webinar(description: str, registration_link: str) -> int:
 def update_webinar(
     webinar_id: int,
     *,
+    title: Optional[str] = None,
     description: Optional[str] = None,
     registration_link: Optional[str] = None,
 ) -> bool:
     fields = []
     params = []
+    if title is not None:
+        fields.append("title = ?")
+        params.append(title)
     if description is not None:
         fields.append("description = ?")
         params.append(description)
