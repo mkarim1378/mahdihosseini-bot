@@ -337,7 +337,13 @@ def list_webinars() -> Iterable[Dict[str, str]]:
             ORDER BY created_at DESC, id DESC
             """
         )
-        for webinar_id, description, registration_link, created_at in cursor.fetchall():
+        for (
+            webinar_id,
+            title,
+            description,
+            registration_link,
+            created_at,
+        ) in cursor.fetchall():
             yield {
                 "id": webinar_id,
                 "title": title,
