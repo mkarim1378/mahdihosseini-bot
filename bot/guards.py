@@ -9,7 +9,7 @@ from telegram.constants import ChatMemberStatus, ChatType
 from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
-from .config import CHANNEL_CHAT_IDENTIFIER
+from . import config
 from .keyboards import membership_keyboard
 from .utils import ensure_user_record, phone_requirement_enabled, prompt_for_contact
 import database
@@ -55,12 +55,13 @@ async def ensure_registered_user(
 async def is_user_in_channel(
     context: ContextTypes.DEFAULT_TYPE, user_id: int
 ) -> bool:
-    if CHANNEL_CHAT_IDENTIFIER is None:
+    channel_identifier = config.CHANNEL_CHAT_IDENTIFIER
+    if channel_identifier is None:
         raise RuntimeError(
             "Channel chat identifier is not configured. Ensure CHANNEL_ID (or CHANNEL_CHAT_ID) is set correctly."
         )
     try:
-        member = await context.bot.get_chat_member(CHANNEL_CHAT_IDENTIFIER, user_id)
+        member = await context.bot.get_chat_member(channel_identifier, user_id)
     except TelegramError as exc:
         logging.warning("Failed to fetch chat member %s: %s", user_id, exc)
         return False

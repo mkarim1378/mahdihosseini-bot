@@ -8,7 +8,7 @@ from telegram import (
     ReplyKeyboardRemove,
 )
 
-from .config import CHANNEL_INVITE_LINK
+from . import config
 from .constants import MEMBERSHIP_VERIFY_CALLBACK, SERVICE_BUTTONS
 
 REQUEST_CONTACT_KEYBOARD = ReplyKeyboardMarkup(
@@ -26,9 +26,10 @@ SERVICE_MENU_KEYBOARD = ReplyKeyboardMarkup(
 
 
 def membership_keyboard() -> InlineKeyboardMarkup:
+    invite_url = config.CHANNEL_INVITE_LINK
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("🔗 عضویت در کانال", url=CHANNEL_INVITE_LINK)],
+            [InlineKeyboardButton("🔗 عضویت در کانال", url=invite_url)],
             [
                 InlineKeyboardButton(
                     "✅ تایید عضویت", callback_data=MEMBERSHIP_VERIFY_CALLBACK
