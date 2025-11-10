@@ -24,6 +24,11 @@ from ..constants import (
     ADMIN_PANEL_MANAGE,
     ADMIN_PANEL_REMOVE_PHONE,
     ADMIN_PANEL_SETTINGS,
+    ADMIN_PANEL_WEBINAR_ADD_DESCRIPTION,
+    ADMIN_PANEL_WEBINAR_ADD_LINK,
+    ADMIN_PANEL_WEBINAR_EDIT_DESCRIPTION,
+    ADMIN_PANEL_WEBINAR_EDIT_LINK,
+    ADMIN_PANEL_WEBINAR_MENU,
     BROADCAST_OPTIONS,
     TEMP_ADMIN_IDS,
 )
@@ -174,6 +179,10 @@ async def admin_panel_settings_callback(
             reply_markup=admin_broadcast_keyboard(),
         )
         return ADMIN_PANEL_BROADCAST_MENU
+
+    if data == "settings:webinars":
+        await show_webinar_menu(query, context)
+        return ADMIN_PANEL_WEBINAR_MENU
 
     if data == "settings:back":
         await query.edit_message_text(
@@ -362,6 +371,321 @@ async def admin_broadcast_message(
         reply_markup=admin_settings_keyboard(phone_requirement_enabled(context)),
     )
     return ADMIN_PANEL_SETTINGS
+
+
+WEBINAR_CANCEL_MARKUP = InlineKeyboardMarkup(
+    [[InlineKeyboardButton("انصراف 🔙", callback_data="webinar:menu")]]
+)
+
+
+def _webinar_preview_label(description: str) -> str:
+    first_line = (description or "").strip().splitlines()[0] if description else ""
+    if not first_line:
+        first_line = "وبینار بدون عنوان"
+    if len(first_line) > 40:
+        return f"{first_line[:37]}..."
+    return first_line
+
+
+def _looks_like_url(value: str) -> bool:
+    lowered = value.lower()
+    return lowered.startswith("http://") or lowered.startswith("https://")
+
+
+async def show_webinar_menu(
+    target, context: ContextTypes.DEFAULT_TYPE, status: str | None = None
+) -> None:
+    webinars = list(database.list_webinars())
+    keyboard = [
+        [InlineKeyboardButton("➕ افزودن وبینار", callback_data="webinar:add")]
+    ]
+    for webinar in webinars:
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    _webinar_preview_label(webinar["description"]),
+                    callback_data=f"webinar:select:{webinar['id']}",
+                )
+            ]
+        )
+    keyboard.append([InlineKeyboardButton("بازگشت 🔙", callback_data="webinar:back")])
+
+    text = "مدیریت وبینارها:"
+    if status:
+        text += f"\n\n{status}"
+    if not webinars:
+        text += "\n\nوبیناری ثبت نشده است."
+
+    markup = InlineKeyboardMarkup(keyboard)
+    if hasattr(target, "edit_message_text"):
+        await target.edit_message_text(text, reply_markup=markup)
+    else:
+        await context.bot.send_message(chat_id=target, text=text, reply_markup=markup)
+
+
+async def show_selected_webinar(
+    query, webinar: dict[str, str], status: str | None = None
+) -> None:
+    text_parts = []
+    if status:
+        text_parts.append(status)
+        text_parts.append("")
+    text_parts.append("مشخصات وبینار انتخاب‌شده:")
+    text_parts.append("")
+    text_parts.append(webinar["description"])
+    text_parts.append("")
+    text_parts.append("لینک ثبت‌نام:")
+    text_parts.append(webinar["registration_link"])
+    text = "\n".join(text_parts)
+
+    keyboard = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("ویرایش توضیحات 📝", callback_data="webinar:edit_desc")],
+            [InlineKeyboardButton("ویرایش لینک 🔗", callback_data="webinar:edit_link")],
+            [InlineKeyboardButton("حذف وبینار 🗑️", callback_data="webinar:delete")],
+            [InlineKeyboardButton("بازگشت 🔙", callback_data="webinar:menu")],
+        ]
+    )
+    await query.edit_message_text(text, reply_markup=keyboard)
+
+
+async def admin_panel_webinar_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    query = update.callback_query
+    await query.answer()
+
+    if not await ensure_private_chat(update, context):
+        return ConversationHandler.END
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
+    user = update.effective_user
+    if not user or not is_admin_user(user.id):
+        await query.edit_message_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    data = query.data
+
+    if data == "webinar:back":
+        context.user_data.pop("webinar_flow", None)
+        context.user_data.pop("webinar_selected", None)
+        await query.edit_message_text(
+            "بخش تنظیمات ربات:",
+            reply_markup=admin_settings_keyboard(phone_requirement_enabled(context)),
+        )
+        return ADMIN_PANEL_SETTINGS
+
+    if data == "webinar:menu":
+        context.user_data.pop("webinar_flow", None)
+        await show_webinar_menu(query, context)
+        return ADMIN_PANEL_WEBINAR_MENU
+
+    if data == "webinar:add":
+        context.user_data["webinar_flow"] = {}
+        await query.edit_message_text(
+            "توضیحات وبینار را ارسال کنید.",
+            reply_markup=WEBINAR_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_WEBINAR_ADD_DESCRIPTION
+
+    if data.startswith("webinar:select:"):
+        try:
+            webinar_id = int(data.split(":", maxsplit=2)[2])
+        except (IndexError, ValueError):
+            await query.answer("گزینه نامعتبر است.", show_alert=True)
+            await show_webinar_menu(query, context)
+            return ADMIN_PANEL_WEBINAR_MENU
+
+        webinar = database.get_webinar(webinar_id)
+        if webinar is None:
+            await query.answer("این وبینار وجود ندارد.", show_alert=True)
+            await show_webinar_menu(query, context)
+            return ADMIN_PANEL_WEBINAR_MENU
+
+        context.user_data["webinar_selected"] = webinar_id
+        await show_selected_webinar(query, webinar)
+        return ADMIN_PANEL_WEBINAR_MENU
+
+    if data == "webinar:edit_desc":
+        webinar_id = context.user_data.get("webinar_selected")
+        if not webinar_id:
+            await query.answer("ابتدا وبینار را انتخاب کنید.", show_alert=True)
+            await show_webinar_menu(query, context)
+            return ADMIN_PANEL_WEBINAR_MENU
+        context.user_data["webinar_flow"] = {"webinar_id": webinar_id}
+        await query.edit_message_text(
+            "توضیحات جدید وبینار را ارسال کنید.",
+            reply_markup=WEBINAR_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_WEBINAR_EDIT_DESCRIPTION
+
+    if data == "webinar:edit_link":
+        webinar_id = context.user_data.get("webinar_selected")
+        if not webinar_id:
+            await query.answer("ابتدا وبینار را انتخاب کنید.", show_alert=True)
+            await show_webinar_menu(query, context)
+            return ADMIN_PANEL_WEBINAR_MENU
+        context.user_data["webinar_flow"] = {"webinar_id": webinar_id}
+        await query.edit_message_text(
+            "لینک جدید ثبت‌نام را ارسال کنید.",
+            reply_markup=WEBINAR_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_WEBINAR_EDIT_LINK
+
+    if data == "webinar:delete":
+        webinar_id = context.user_data.get("webinar_selected")
+        if not webinar_id:
+            await query.answer("ابتدا وبینار را انتخاب کنید.", show_alert=True)
+            await show_webinar_menu(query, context)
+            return ADMIN_PANEL_WEBINAR_MENU
+        context.user_data.pop("webinar_flow", None)
+        if database.delete_webinar(webinar_id):
+            context.user_data.pop("webinar_selected", None)
+            await show_webinar_menu(query, context, status="وبینار حذف شد ✅")
+        else:
+            await show_webinar_menu(
+                query, context, status="حذف وبینار با خطا مواجه شد."
+            )
+        return ADMIN_PANEL_WEBINAR_MENU
+
+    await query.answer("گزینه نامعتبر است.", show_alert=True)
+    await show_webinar_menu(query, context)
+    return ADMIN_PANEL_WEBINAR_MENU
+
+
+async def admin_webinar_add_description(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
+    if not await ensure_registered_user(update, context):
+        return ConversationHandler.END
+
+    if not is_admin_user(update.effective_user.id):
+        await update.message.reply_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    description = (update.message.text or "").strip()
+    if not description:
+        await update.message.reply_text(
+            "توضیحات وبینار نمی‌تواند خالی باشد. لطفاً دوباره ارسال کن.",
+            reply_markup=WEBINAR_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_WEBINAR_ADD_DESCRIPTION
+
+    context.user_data["webinar_flow"] = {"description": description}
+    await update.message.reply_text(
+        "لینک ثبت‌نام وبینار را ارسال کن (با http:// یا https://).",
+        reply_markup=WEBINAR_CANCEL_MARKUP,
+    )
+    return ADMIN_PANEL_WEBINAR_ADD_LINK
+
+
+async def admin_webinar_add_link(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
+    if not await ensure_registered_user(update, context):
+        return ConversationHandler.END
+
+    if not is_admin_user(update.effective_user.id):
+        await update.message.reply_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    link = (update.message.text or "").strip()
+    if not _looks_like_url(link):
+        await update.message.reply_text(
+            "لینک باید با http:// یا https:// شروع شود. لطفاً دوباره ارسال کن.",
+            reply_markup=WEBINAR_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_WEBINAR_ADD_LINK
+
+    flow = context.user_data.get("webinar_flow") or {}
+    description = flow.get("description")
+    if not description:
+        await update.message.reply_text(
+            "اطلاعات وبینار ناقص است. لطفاً دوباره تلاش کن.",
+            reply_markup=WEBINAR_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_WEBINAR_ADD_LINK
+
+    database.create_webinar(description, link)
+    context.user_data.pop("webinar_flow", None)
+    await update.message.reply_text("وبینار جدید ثبت شد ✅")
+    await show_webinar_menu(update.effective_chat.id, context)
+    return ADMIN_PANEL_WEBINAR_MENU
+
+
+async def admin_webinar_edit_description(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
+    if not await ensure_registered_user(update, context):
+        return ConversationHandler.END
+
+    if not is_admin_user(update.effective_user.id):
+        await update.message.reply_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    webinar_id = context.user_data.get("webinar_selected")
+    if not webinar_id:
+        await update.message.reply_text("ابتدا وبینار را از فهرست انتخاب کن.")
+        await show_webinar_menu(update.effective_chat.id, context)
+        return ADMIN_PANEL_WEBINAR_MENU
+
+    description = (update.message.text or "").strip()
+    if not description:
+        await update.message.reply_text(
+            "توضیحات جدید نمی‌تواند خالی باشد. دوباره تلاش کن.",
+            reply_markup=WEBINAR_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_WEBINAR_EDIT_DESCRIPTION
+
+    database.update_webinar(webinar_id, description=description)
+    context.user_data.pop("webinar_flow", None)
+    await update.message.reply_text("توضیحات وبینار به‌روزرسانی شد ✅")
+    await show_webinar_menu(update.effective_chat.id, context)
+    return ADMIN_PANEL_WEBINAR_MENU
+
+
+async def admin_webinar_edit_link(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
+    if not await ensure_registered_user(update, context):
+        return ConversationHandler.END
+
+    if not is_admin_user(update.effective_user.id):
+        await update.message.reply_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    webinar_id = context.user_data.get("webinar_selected")
+    if not webinar_id:
+        await update.message.reply_text("ابتدا وبینار را از فهرست انتخاب کن.")
+        await show_webinar_menu(update.effective_chat.id, context)
+        return ADMIN_PANEL_WEBINAR_MENU
+
+    link = (update.message.text or "").strip()
+    if not _looks_like_url(link):
+        await update.message.reply_text(
+            "لینک باید با http:// یا https:// شروع شود. دوباره تلاش کن.",
+            reply_markup=WEBINAR_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_WEBINAR_EDIT_LINK
+
+    database.update_webinar(webinar_id, registration_link=link)
+    context.user_data.pop("webinar_flow", None)
+    await update.message.reply_text("لینک ثبت‌نام به‌روزرسانی شد ✅")
+    await show_webinar_menu(update.effective_chat.id, context)
+    return ADMIN_PANEL_WEBINAR_MENU
 
 
 async def show_remove_admin_menu(query, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -613,6 +937,9 @@ async def admin_add_cancel_callback(
 async def admin_cancel(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
+    context.user_data.pop("broadcast_target", None)
+    context.user_data.pop("webinar_flow", None)
+    context.user_data.pop("webinar_selected", None)
     if update.message:
         await update.message.reply_text(
             "خروج از پنل ادمین.",
@@ -663,6 +990,33 @@ def create_admin_conversation() -> ConversationHandler:
             ],
             ADMIN_PANEL_REMOVE_PHONE: [
                 CallbackQueryHandler(handle_remove_admin_selection, pattern="^remove:"),
+            ],
+            ADMIN_PANEL_WEBINAR_MENU: [
+                CallbackQueryHandler(admin_panel_webinar_callback, pattern="^webinar:"),
+            ],
+            ADMIN_PANEL_WEBINAR_ADD_DESCRIPTION: [
+                MessageHandler(
+                    private_text & ~filters.COMMAND, admin_webinar_add_description
+                ),
+                CallbackQueryHandler(admin_panel_webinar_callback, pattern="^webinar:"),
+            ],
+            ADMIN_PANEL_WEBINAR_ADD_LINK: [
+                MessageHandler(
+                    private_text & ~filters.COMMAND, admin_webinar_add_link
+                ),
+                CallbackQueryHandler(admin_panel_webinar_callback, pattern="^webinar:"),
+            ],
+            ADMIN_PANEL_WEBINAR_EDIT_DESCRIPTION: [
+                MessageHandler(
+                    private_text & ~filters.COMMAND, admin_webinar_edit_description
+                ),
+                CallbackQueryHandler(admin_panel_webinar_callback, pattern="^webinar:"),
+            ],
+            ADMIN_PANEL_WEBINAR_EDIT_LINK: [
+                MessageHandler(
+                    private_text & ~filters.COMMAND, admin_webinar_edit_link
+                ),
+                CallbackQueryHandler(admin_panel_webinar_callback, pattern="^webinar:"),
             ],
         },
         fallbacks=[CommandHandler("cancel", admin_cancel)],

@@ -14,13 +14,15 @@ This project implements a Telegram bot that onboards users through a private cha
   - Ensures a `users` row exists for every contact (`database.ensure_user_record`).
   - Optional mobile requirement (default set via `REQUIRE_PHONE_DEFAULT`, runtime toggle in admin UI). Phone numbers are normalized to the last 10 digits before persistence.
 - **Core menu**
-  - Static options for case studies, webinars, drop learning, and services with localized responses (`bot/menu.py`).
+  - Dynamic webinar catalogue: selecting “وبینار ها” streams every published webinar with its description and an inline registration button.
+  - Static placeholders for case studies, drop learning, and services with localized responses (`bot/menu.py`).
   - Service submenu (`SERVICE_MENU_KEYBOARD`) and fallback messaging for upcoming sections.
 - **Admin panel (conversation handler in `bot/admin/conversation.py`)**
   - Stats dashboard: total users, with phone, without phone.
   - Runtime phone toggle with immediate feedback.
   - Broadcast workflows targeting all / with phone / without phone cohorts; resilient logging on Telegram delivery failures.
   - Admin management: add by phone lookup, remove via inline list (excluding temp IDs), list with emoji index, and cancel navigation.
+  - Webinar lifecycle management: create entries (description + registration link), edit either field, or delete webinars through inline menus with per-item actions.
 - **Resilience & DX**
   - Centralized error handler (`bot/errors.py`) notifies users on unhandled exceptions.
   - Config loader searches root `.env` and populates channel globals (`bot/config.py`).
@@ -74,7 +76,7 @@ Key runtime invariants:
 
 3. **Database**
    - On first run `database.init_db()` creates/patches `bot.sqlite3` in the project root.
-   - Schemas: `users(telegram_id, phone_number, fname, lname, username)` and `admins(telegram_id)` with cascading deletes.
+   - Schemas: `users(telegram_id, phone_number, fname, lname, username)`, `admins(telegram_id)` with cascading deletes, and `webinars(id, description, registration_link, created_at)`.
 
 ## Running the Bot
 
@@ -91,6 +93,10 @@ The bot starts polling with `allowed_updates=["message", "callback_query"]` and 
 - **Remove admin**: select a user from the inline list; temporary admins are protected from removal.
 - **Broadcast**: pick a cohort, send a plain-text message, receive delivery stats (success/failure counts).
 - **Toggle phone requirement**: switches the onboarding guard in real time without service restarts.
+- **Manage webinars**:
+  - From *مدیریت وبینارها 🎥* view the catalog; each webinar appears as a physical button.
+  - *➕ افزودن وبینار* prompts for a description followed by a registration URL.
+  - Selecting an existing webinar exposes inline actions to edit the description, update the link, or remove the entry entirely.
 
 ## Development Notes
 

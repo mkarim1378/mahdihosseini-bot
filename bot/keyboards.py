@@ -61,6 +61,11 @@ def admin_settings_keyboard(require_phone: bool) -> InlineKeyboardMarkup:
                 )
             ],
             [InlineKeyboardButton(toggle_label, callback_data="settings:toggle_phone")],
+            [
+                InlineKeyboardButton(
+                    "مدیریت وبینارها 🎥", callback_data="settings:webinars"
+                )
+            ],
             [InlineKeyboardButton("پیام همگانی 📢", callback_data="settings:broadcast")],
             [InlineKeyboardButton("بازگشت 🔙", callback_data="settings:back")],
         ]

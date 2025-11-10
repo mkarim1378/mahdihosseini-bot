@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
-from telegram import KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+    Update,
+)
 from telegram.ext import ContextTypes
 
 import database
@@ -119,6 +126,32 @@ async def handle_menu_selection(
                 "یکی از خدمات زیر را انتخاب کن:",
                 reply_markup=SERVICE_MENU_KEYBOARD,
             )
+        elif text == "وبینار ها":
+            webinars = list(database.list_webinars())
+            if not webinars:
+                await update.message.reply_text(
+                    "در حال حاضر وبیناری ثبت نشده است.",
+                    reply_markup=build_main_menu_keyboard(user_id),
+                )
+                return
+
+            for webinar in webinars:
+                keyboard = InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton(
+                                "ثبت‌نام در وبینار", url=webinar["registration_link"]
+                            )
+                        ]
+                    ]
+                )
+                await update.message.reply_text(webinar["description"], reply_markup=keyboard)
+
+            await update.message.reply_text(
+                "برای بازگشت دکمه موردنظر را انتخاب کن.",
+                reply_markup=build_main_menu_keyboard(user_id),
+            )
+            return
         elif text == "بازگشت":
             await update.message.reply_text(
                 "بازگشت به منوی اصلی.",

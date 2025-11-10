@@ -30,6 +30,16 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS webinars (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                description TEXT NOT NULL,
+                registration_link TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
 
 
 def _ensure_users_schema(conn: sqlite3.Connection) -> None:
@@ -287,4 +297,94 @@ def iter_users(has_phone: Optional[bool] = None) -> Iterable[Dict[str, str]]:
                 "lname": lname or "",
                 "username": username or "",
             }
+
+
+def list_webinars() -> Iterable[Dict[str, str]]:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            """
+            SELECT id, description, registration_link, created_at
+            FROM webinars
+            ORDER BY created_at DESC, id DESC
+            """
+        )
+        for webinar_id, description, registration_link, created_at in cursor.fetchall():
+            yield {
+                "id": webinar_id,
+                "description": description,
+                "registration_link": registration_link,
+                "created_at": created_at,
+            }
+
+
+def get_webinar(webinar_id: int) -> Optional[Dict[str, str]]:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            """
+            SELECT id, description, registration_link, created_at
+            FROM webinars
+            WHERE id = ?
+            """,
+            (webinar_id,),
+        )
+        row = cursor.fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row[0],
+        "description": row[1],
+        "registration_link": row[2],
+        "created_at": row[3],
+    }
+
+
+def create_webinar(description: str, registration_link: str) -> int:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO webinars (description, registration_link)
+            VALUES (?, ?)
+            """,
+            (description, registration_link),
+        )
+        return cursor.lastrowid
+
+
+def update_webinar(
+    webinar_id: int,
+    *,
+    description: Optional[str] = None,
+    registration_link: Optional[str] = None,
+) -> bool:
+    fields = []
+    params = []
+    if description is not None:
+        fields.append("description = ?")
+        params.append(description)
+    if registration_link is not None:
+        fields.append("registration_link = ?")
+        params.append(registration_link)
+    if not fields:
+        return False
+    params.append(webinar_id)
+
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            f"""
+            UPDATE webinars
+            SET {", ".join(fields)}
+            WHERE id = ?
+            """,
+            tuple(params),
+        )
+        return cursor.rowcount > 0
+
+
+def delete_webinar(webinar_id: int) -> bool:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            "DELETE FROM webinars WHERE id = ?",
+            (webinar_id,),
+        )
+        return cursor.rowcount > 0
 

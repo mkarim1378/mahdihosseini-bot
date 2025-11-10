@@ -12,7 +12,12 @@ TEMP_ADMIN_IDS = {234368567}
     ADMIN_PANEL_REMOVE_PHONE,
     ADMIN_PANEL_BROADCAST_MENU,
     ADMIN_PANEL_BROADCAST_MESSAGE,
-) = range(7)
+    ADMIN_PANEL_WEBINAR_MENU,
+    ADMIN_PANEL_WEBINAR_ADD_DESCRIPTION,
+    ADMIN_PANEL_WEBINAR_ADD_LINK,
+    ADMIN_PANEL_WEBINAR_EDIT_DESCRIPTION,
+    ADMIN_PANEL_WEBINAR_EDIT_LINK,
+) = range(12)
 
 MEMBERSHIP_VERIFY_CALLBACK = "verify_membership"
 
@@ -41,7 +46,6 @@ SERVICE_BUTTONS = [
 
 CORE_MENU_RESPONSES = {
     "Case Studies": "بخش Case Studies به زودی در دسترس قرار می‌گیرد.",
-    "وبینار ها": "وبینارهای جدید به زودی اعلام می‌شوند.",
     "دراپ لرنینگ": "دراپ لرنینگ به زودی فعال می‌شود.",
     "مشاوره رایگان": "مشاوران ما به زودی پاسخگوی شما خواهند بود.",
 }
