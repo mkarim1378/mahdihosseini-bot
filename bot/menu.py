@@ -31,9 +31,15 @@ from .utils import (
 
 
 def build_main_menu_keyboard(user_id: int | None) -> ReplyKeyboardMarkup:
-    rows = [[KeyboardButton(title)] for title in CORE_MENU_BUTTONS]
+    titles = list(CORE_MENU_BUTTONS)
     if user_id is not None and is_admin_user(user_id):
-        rows.append([KeyboardButton("🛠️ پنل ادمین")])
+        titles.append("🛠️ پنل ادمین")
+
+    rows: list[list[KeyboardButton]] = []
+    for i in range(0, len(titles), 2):
+        chunk = [KeyboardButton(t) for t in titles[i : i + 2]]
+        rows.append(chunk)
+
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
 
@@ -160,11 +166,14 @@ async def handle_menu_selection(
                 )
                 return
 
-            webinar_keyboard = ReplyKeyboardMarkup(
-                [[KeyboardButton(webinar["title"] or "وبینار بدون عنوان")] for webinar in webinars]
-                + [[KeyboardButton("بازگشت")]],
-                resize_keyboard=True,
-            )
+            titles = [webinar["title"] or "وبینار بدون عنوان" for webinar in webinars]
+            rows: list[list[KeyboardButton]] = []
+            for i in range(0, len(titles), 2):
+                chunk = [KeyboardButton(t) for t in titles[i : i + 2]]
+                rows.append(chunk)
+            rows.append([KeyboardButton("بازگشت")])
+
+            webinar_keyboard = ReplyKeyboardMarkup(rows, resize_keyboard=True)
             context.user_data["webinar_menu"] = {
                 (webinar["title"] or "وبینار بدون عنوان"): webinar["id"]
                 for webinar in webinars

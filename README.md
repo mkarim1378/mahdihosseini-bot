@@ -45,7 +45,7 @@ bot/
   admin/
     conversation.py      # ConversationHandler for the admin console
 database.py              # SQLite access layer (users + admins)
-seyed.py                 # thin entrypoint wiring configuration + polling loop
+bot.py                 # thin entrypoint wiring configuration + polling loop
 ```
 
 Key runtime invariants:
@@ -84,7 +84,7 @@ Key runtime invariants:
 ## Running the Bot
 
 ```bash
-python seyed.py
+python bot.py
 ```
 
 The bot starts polling with `allowed_updates=["message", "callback_query"]` and drops pending updates for a clean session.
@@ -105,7 +105,7 @@ The bot starts polling with `allowed_updates=["message", "callback_query"]` and 
 
 -   Use `python -m compileall .` to run a quick syntax check across modules (already integrated in the refactor workflow).
 -   Handlers are async; any new handler must be declared with `async def` and registered via `bot/handlers.register_handlers`.
--   Keep new functionality modular—prefer extending existing packages (`bot/menu.py`, `bot/admin/`, etc.) instead of expanding `seyed.py`.
+-   Keep new functionality modular—prefer extending existing packages (`bot/menu.py`, `bot/admin/`, etc.) instead of expanding `bot.py`.
 
 ## Future Enhancements
 

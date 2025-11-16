@@ -44,6 +44,7 @@ from ..keyboards import (
     admin_broadcast_cancel_keyboard,
     admin_broadcast_keyboard,
     admin_main_keyboard,
+    admin_main_reply_keyboard,
     admin_manage_keyboard,
     admin_settings_keyboard,
 )
@@ -77,15 +78,59 @@ async def admin_panel_entry(
     if update.callback_query:
         query = update.callback_query
         await query.answer()
-        await query.edit_message_text(
-            "به پنل ادمین خوش آمدید. یکی از گزینه‌ها را انتخاب کنید:",
-            reply_markup=admin_main_keyboard(),
+        await query.edit_message_text("به پنل ادمین خوش آمدید.")
+        await query.message.reply_text(
+            "یکی از گزینه‌ها را انتخاب کنید:",
+            reply_markup=admin_main_reply_keyboard(),
         )
     elif update.message:
         await update.message.reply_text(
             "به پنل ادمین خوش آمدید. یکی از گزینه‌ها را انتخاب کنید:",
-            reply_markup=admin_main_keyboard(),
+            reply_markup=admin_main_reply_keyboard(),
         )
+    return ADMIN_PANEL_MAIN
+
+
+async def admin_panel_main_message(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    if not await ensure_private_chat(update, context):
+        return ConversationHandler.END
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
+    user = update.effective_user
+    if not user or not is_admin_user(user.id):
+        if update.message:
+            await update.message.reply_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    text = (update.message.text or "").strip()
+
+    if text == "تنظیمات ربات ⚙️":
+        await update.message.reply_text(
+            "بخش تنظیمات ربات:",
+            reply_markup=admin_settings_keyboard(phone_requirement_enabled(context)),
+        )
+        return ADMIN_PANEL_SETTINGS
+
+    if text == "آمار گیری 📊":
+        stats = database.get_user_stats()
+        lines = [
+            "آمار ربات:",
+            f"- کل کاربران: {stats['total']}",
+            f"- کاربران با شماره موبایل: {stats['with_phone']}",
+            f"- کاربران بدون شماره موبایل: {stats['without_phone']}",
+        ]
+        await update.message.reply_text("\n".join(lines))
+        return ADMIN_PANEL_MAIN
+
+    if text == "بازگشت به ربات ⬅️":
+        await update.message.reply_text("بازگشت به ربات.")
+        await send_main_menu(update, context)
+        return ConversationHandler.END
+
+    await update.message.reply_text("گزینه نامعتبر است. لطفاً یکی از گزینه‌های منو را انتخاب کنید.")
     return ADMIN_PANEL_MAIN
 
 
@@ -124,7 +169,11 @@ async def admin_panel_main_callback(
                 f"- کاربران بدون شماره موبایل: {stats['without_phone']}",
             ]
         )
-        await query.edit_message_text(text, reply_markup=admin_main_keyboard())
+        await query.edit_message_text(text)
+        await query.message.reply_text(
+            "به پنل ادمین خوش آمدید. یکی از گزینه‌ها را انتخاب کنید:",
+            reply_markup=admin_main_reply_keyboard(),
+        )
         return ADMIN_PANEL_MAIN
 
     if data == "panel:back":
@@ -187,9 +236,10 @@ async def admin_panel_settings_callback(
         return ADMIN_PANEL_WEBINAR_MENU
 
     if data == "settings:back":
-        await query.edit_message_text(
+        await query.edit_message_text("بازگشت به پنل ادمین.")
+        await query.message.reply_text(
             "به پنل ادمین خوش آمدید. یکی از گزینه‌ها را انتخاب کنید:",
-            reply_markup=admin_main_keyboard(),
+            reply_markup=admin_main_reply_keyboard(),
         )
         return ADMIN_PANEL_MAIN
 
@@ -1058,6 +1108,9 @@ def create_admin_conversation() -> ConversationHandler:
         ],
         states={
             ADMIN_PANEL_MAIN: [
+                MessageHandler(
+                    private_text & ~filters.COMMAND, admin_panel_main_message
+                ),
                 CallbackQueryHandler(admin_panel_main_callback, pattern="^panel:"),
             ],
             ADMIN_PANEL_SETTINGS: [
@@ -1087,6 +1140,12 @@ def create_admin_conversation() -> ConversationHandler:
             ADMIN_PANEL_WEBINAR_MENU: [
                 CallbackQueryHandler(admin_panel_webinar_callback, pattern="^webinar:"),
             ],
+            ADMIN_PANEL_WEBINAR_ADD_TITLE: [
+                MessageHandler(
+                    private_text & ~filters.COMMAND, admin_webinar_add_title
+                ),
+                CallbackQueryHandler(admin_panel_webinar_callback, pattern="^webinar:"),
+            ],
             ADMIN_PANEL_WEBINAR_ADD_DESCRIPTION: [
                 MessageHandler(
                     private_text & ~filters.COMMAND, admin_webinar_add_description
@@ -1108,6 +1167,12 @@ def create_admin_conversation() -> ConversationHandler:
             ADMIN_PANEL_WEBINAR_EDIT_LINK: [
                 MessageHandler(
                     private_text & ~filters.COMMAND, admin_webinar_edit_link
+                ),
+                CallbackQueryHandler(admin_panel_webinar_callback, pattern="^webinar:"),
+            ],
+            ADMIN_PANEL_WEBINAR_EDIT_TITLE: [
+                MessageHandler(
+                    private_text & ~filters.COMMAND, admin_webinar_edit_title
                 ),
                 CallbackQueryHandler(admin_panel_webinar_callback, pattern="^webinar:"),
             ],

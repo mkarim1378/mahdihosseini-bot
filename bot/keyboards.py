@@ -18,8 +18,17 @@ REQUEST_CONTACT_KEYBOARD = ReplyKeyboardMarkup(
     input_field_placeholder="لطفاً شماره موبایل خود را ارسال کنید",
 )
 
+
+def _chunk_buttons(titles: list[str], row_size: int = 2) -> list[list[KeyboardButton]]:
+    rows: list[list[KeyboardButton]] = []
+    for i in range(0, len(titles), row_size):
+        chunk = [KeyboardButton(title) for title in titles[i : i + row_size]]
+        rows.append(chunk)
+    return rows
+
+
 SERVICE_MENU_KEYBOARD = ReplyKeyboardMarkup(
-    keyboard=[[KeyboardButton(title)] for title in SERVICE_BUTTONS]
+    keyboard=_chunk_buttons(SERVICE_BUTTONS, row_size=2)
     + [[KeyboardButton("بازگشت")]],
     resize_keyboard=True,
 )
@@ -47,6 +56,18 @@ def admin_main_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton("بازگشت به ربات ⬅️", callback_data="panel:back")],
         ]
     )
+
+
+def admin_main_reply_keyboard() -> ReplyKeyboardMarkup:
+    rows: list[list[KeyboardButton]] = []
+    rows.append(
+        [
+            KeyboardButton("تنظیمات ربات ⚙️"),
+            KeyboardButton("آمار گیری 📊"),
+        ]
+    )
+    rows.append([KeyboardButton("بازگشت به ربات ⬅️")])
+    return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
 
 def admin_settings_keyboard(require_phone: bool) -> InlineKeyboardMarkup:
@@ -123,6 +144,7 @@ __all__ = [
     "SERVICE_MENU_KEYBOARD",
     "membership_keyboard",
     "admin_main_keyboard",
+    "admin_main_reply_keyboard",
     "admin_settings_keyboard",
     "admin_manage_keyboard",
     "admin_add_cancel_keyboard",
