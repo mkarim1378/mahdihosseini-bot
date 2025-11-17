@@ -132,9 +132,16 @@ async def admin_panel_main_message(
         stats = database.get_user_stats()
         lines = [
             "آمار ربات:",
+            "",
+            "👥 کاربران:",
             f"- کل کاربران: {stats['total']}",
             f"- کاربران با شماره موبایل: {stats['with_phone']}",
             f"- کاربران بدون شماره موبایل: {stats['without_phone']}",
+            "",
+            "📊 آمار بخش‌ها:",
+            f"- بازدیدکنندگان وبینارها: {stats.get('webinar_viewers', 0)}",
+            f"- بازدیدکنندگان دراپ لرنینگ: {stats.get('drop_learning_viewers', 0)}",
+            f"- بازدیدکنندگان کیس استادی: {stats.get('case_studies_viewers', 0)}",
         ]
         await update.message.reply_text("\n".join(lines))
         return ADMIN_PANEL_MAIN
@@ -190,9 +197,16 @@ async def admin_panel_main_callback(
         text = "\n".join(
             [
                 "آمار ربات:",
+                "",
+                "👥 کاربران:",
                 f"- کل کاربران: {stats['total']}",
                 f"- کاربران با شماره موبایل: {stats['with_phone']}",
                 f"- کاربران بدون شماره موبایل: {stats['without_phone']}",
+                "",
+                "📊 آمار بخش‌ها:",
+                f"- بازدیدکنندگان وبینارها: {stats.get('webinar_viewers', 0)}",
+                f"- بازدیدکنندگان دراپ لرنینگ: {stats.get('drop_learning_viewers', 0)}",
+                f"- بازدیدکنندگان کیس استادی: {stats.get('case_studies_viewers', 0)}",
             ]
         )
         await query.edit_message_text(text)

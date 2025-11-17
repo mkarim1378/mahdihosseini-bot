@@ -372,6 +372,11 @@ async def send_webinar_content(
         await update.message.reply_text("این وبینار دیگر در دسترس نیست.")
         return
 
+    # Record view
+    user_id = update.effective_user.id if update.effective_user else None
+    if user_id:
+        database.record_webinar_view(user_id, webinar_id)
+
     # Send cover photo if available
     if webinar.get("cover_photo_file_id"):
         try:
@@ -434,6 +439,11 @@ async def send_drop_learning_content(
         await update.message.reply_text("این دراپ لرنینگ دیگر در دسترس نیست.")
         return
 
+    # Record view
+    user_id = update.effective_user.id if update.effective_user else None
+    if user_id:
+        database.record_drop_learning_view(user_id, item_id)
+
     # Send cover photo if available
     if item.get("cover_photo_file_id"):
         try:
@@ -494,6 +504,11 @@ async def send_case_study_content(
     if not item:
         await update.message.reply_text("این کیس استادی دیگر در دسترس نیست.")
         return
+
+    # Record view
+    user_id = update.effective_user.id if update.effective_user else None
+    if user_id:
+        database.record_case_study_view(user_id, item_id)
 
     # Send cover photo if available
     if item.get("cover_photo_file_id"):

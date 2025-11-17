@@ -100,6 +100,39 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS webinar_views (
+                user_id INTEGER NOT NULL,
+                webinar_id INTEGER NOT NULL,
+                viewed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, webinar_id),
+                FOREIGN KEY (webinar_id) REFERENCES webinars (id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS drop_learning_views (
+                user_id INTEGER NOT NULL,
+                drop_learning_id INTEGER NOT NULL,
+                viewed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, drop_learning_id),
+                FOREIGN KEY (drop_learning_id) REFERENCES drop_learning (id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS case_studies_views (
+                user_id INTEGER NOT NULL,
+                case_study_id INTEGER NOT NULL,
+                viewed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, case_study_id),
+                FOREIGN KEY (case_study_id) REFERENCES case_studies (id) ON DELETE CASCADE
+            )
+            """
+        )
 
 
 def _ensure_users_schema(conn: sqlite3.Connection) -> None:
@@ -380,15 +413,31 @@ def get_user_stats() -> Dict[str, int]:
         )
         total, with_phone = cursor.fetchone()
 
-    with_phone = with_phone or 0
-    total = total or 0
-    without_phone = total - with_phone
+        with_phone = with_phone or 0
+        total = total or 0
+        without_phone = total - with_phone
 
-    return {
-        "total": total,
-        "with_phone": with_phone,
-        "without_phone": without_phone,
-    }
+        # Get unique viewers for each section
+        webinar_viewers = conn.execute(
+            "SELECT COUNT(DISTINCT user_id) FROM webinar_views"
+        ).fetchone()[0] or 0
+        
+        drop_learning_viewers = conn.execute(
+            "SELECT COUNT(DISTINCT user_id) FROM drop_learning_views"
+        ).fetchone()[0] or 0
+        
+        case_studies_viewers = conn.execute(
+            "SELECT COUNT(DISTINCT user_id) FROM case_studies_views"
+        ).fetchone()[0] or 0
+
+        return {
+            "total": total,
+            "with_phone": with_phone,
+            "without_phone": without_phone,
+            "webinar_viewers": webinar_viewers,
+            "drop_learning_viewers": drop_learning_viewers,
+            "case_studies_viewers": case_studies_viewers,
+        }
 
 
 def iter_users(has_phone: Optional[bool] = None) -> Iterable[Dict[str, str]]:
@@ -824,6 +873,42 @@ def delete_case_study(item_id: int) -> bool:
             (item_id,),
         )
         return cursor.rowcount > 0
+
+
+def record_webinar_view(user_id: int, webinar_id: int) -> None:
+    """Record that a user viewed a webinar."""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO webinar_views (user_id, webinar_id)
+            VALUES (?, ?)
+            """,
+            (user_id, webinar_id),
+        )
+
+
+def record_drop_learning_view(user_id: int, drop_learning_id: int) -> None:
+    """Record that a user viewed a drop learning item."""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO drop_learning_views (user_id, drop_learning_id)
+            VALUES (?, ?)
+            """,
+            (user_id, drop_learning_id),
+        )
+
+
+def record_case_study_view(user_id: int, case_study_id: int) -> None:
+    """Record that a user viewed a case study."""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO case_studies_views (user_id, case_study_id)
+            VALUES (?, ?)
+            """,
+            (user_id, case_study_id),
+        )
 
 
 def add_case_study_content(item_id: int, file_id: str, file_type: str, content_order: int = 0) -> int:
