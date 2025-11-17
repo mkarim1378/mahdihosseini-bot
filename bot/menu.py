@@ -15,7 +15,14 @@ from telegram import (
 from telegram.ext import ContextTypes
 
 import database
-from .constants import CORE_MENU_BUTTONS, CORE_MENU_RESPONSES, SERVICE_RESPONSES
+from .constants import (
+    CORE_MENU_BUTTONS,
+    CORE_MENU_RESPONSES,
+    SERVICE_RESPONSES,
+    CONSULTATION_MESSAGE,
+    PAYMENT_AMOUNT,
+    PAYMENT_CARD_NUMBER,
+)
 from .guards import (
     ensure_channel_membership,
     ensure_private_chat,
@@ -28,6 +35,8 @@ from .keyboards import (
     SERVICE_MENU_KEYBOARD,
     membership_keyboard,
     register_phone_keyboard,
+    consultation_payment_keyboard,
+    consultation_receipt_keyboard,
 )
 from .utils import (
     ensure_user_record,
@@ -158,6 +167,7 @@ async def handle_menu_selection(
             "مدیریت وبینارها 🎥",
             "مدیریت دراپ لرنینگ 📚",
             "مدیریت کیس استادی 📋",
+            "پیام همگانی 📢",
             "بازگشت به ربات ⬅️",
         ]
         if text in admin_panel_texts:
@@ -348,6 +358,12 @@ async def handle_menu_selection(
                 "بازگشت به منوی اصلی.",
                 reply_markup=build_main_menu_keyboard(user_id),
             )
+        elif text == "رزرو مشاوره":
+            await update.message.reply_text(
+                CONSULTATION_MESSAGE,
+                reply_markup=consultation_payment_keyboard(),
+            )
+            return
         elif text in SERVICE_RESPONSES:
             await update.message.reply_text(
                 SERVICE_RESPONSES[text],
@@ -640,6 +656,109 @@ async def handle_sendphone_command(
     )
 
 
+async def handle_consultation_payment_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle consultation payment button click."""
+    query = update.callback_query
+    await query.answer()
+
+    if not await ensure_private_chat(update, context):
+        return
+    if not await ensure_channel_membership(update, context):
+        return
+    if not await ensure_registered_user(update, context):
+        return
+
+    payment_message = f"""💳 اطلاعات پرداخت:
+
+مبلغ: {PAYMENT_AMOUNT} تومان
+شماره کارت: {PAYMENT_CARD_NUMBER}
+
+فیش واریز رو باید ارسال کنید از طریق دکمه زیر"""
+
+    await query.edit_message_text(
+        payment_message,
+        reply_markup=consultation_receipt_keyboard(),
+    )
+
+
+async def handle_consultation_send_receipt_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle send receipt button click."""
+    query = update.callback_query
+    await query.answer()
+
+    if not await ensure_private_chat(update, context):
+        return
+    if not await ensure_channel_membership(update, context):
+        return
+    if not await ensure_registered_user(update, context):
+        return
+
+    context.user_data["waiting_for_receipt"] = True
+    await query.edit_message_text("لطفاً عکس رسید واریز را ارسال کنید.")
+
+
+async def handle_receipt_photo(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle receipt photo upload."""
+    if not await ensure_private_chat(update, context):
+        return
+    if not await ensure_channel_membership(update, context):
+        return
+    if not await ensure_registered_user(update, context):
+        return
+
+    if not context.user_data.get("waiting_for_receipt"):
+        return
+
+    if not update.message or not update.message.photo:
+        await update.message.reply_text("لطفاً یک عکس ارسال کنید.")
+        return
+
+    user = update.effective_user
+    if not user:
+        return
+
+    # Get the largest photo
+    photo = update.message.photo[-1]
+    receipt_file_id = photo.file_id
+
+    # Create consultation request
+    request_id = database.create_consultation_request(user.id, receipt_file_id)
+    context.user_data.pop("waiting_for_receipt", None)
+
+    # Get user info
+    user_info = database.get_user(user.id)
+    user_info_text = f"""کاربر: {user_info['fname']} {user_info['lname']}
+شماره موبایل: {user_info['phone_number']}
+یوزرنیم: @{user_info['username']}""" if user_info else f"کاربر ID: {user.id}"
+
+    # Send to all admins
+    from .utils import is_admin_user
+    from .keyboards import consultation_approval_keyboard
+
+    admins = list(database.list_admins())
+    for admin in admins:
+        try:
+            await context.bot.send_photo(
+                chat_id=admin["telegram_id"],
+                photo=receipt_file_id,
+                caption=f"درخواست مشاوره جدید\n\n{user_info_text}",
+                reply_markup=consultation_approval_keyboard(request_id),
+            )
+        except Exception as e:
+            logging.warning(f"Failed to send receipt to admin {admin['telegram_id']}: {e}")
+
+    await update.message.reply_text(
+        "رسید واریز شما دریافت شد. پس از بررسی، با شما تماس گرفته خواهد شد.",
+        reply_markup=build_main_menu_keyboard(user.id),
+    )
+
+
 async def handle_membership_verification(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -671,6 +790,9 @@ async def handle_membership_verification(
 __all__ = [
     "build_main_menu_keyboard",
     "handle_contact",
+    "handle_consultation_payment_callback",
+    "handle_consultation_send_receipt_callback",
+    "handle_receipt_photo",
     "handle_membership_verification",
     "handle_menu_selection",
     "handle_register_phone_callback",

@@ -133,6 +133,19 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS consultation_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                receipt_photo_file_id TEXT,
+                status TEXT DEFAULT 'pending',
+                rejection_reason TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (telegram_id) ON DELETE CASCADE
+            )
+            """
+        )
 
 
 def _ensure_users_schema(conn: sqlite3.Connection) -> None:
@@ -936,5 +949,91 @@ def get_case_study_content(item_id: int) -> Iterable[Dict[str, str]]:
                 "file_id": file_id,
                 "file_type": file_type,
                 "content_order": content_order,
+            }
+
+
+# Consultation request functions
+def create_consultation_request(user_id: int, receipt_photo_file_id: str) -> int:
+    """Create a new consultation request with receipt."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO consultation_requests (user_id, receipt_photo_file_id, status)
+            VALUES (?, ?, 'pending')
+            """,
+            (user_id, receipt_photo_file_id),
+        )
+        return cursor.lastrowid
+
+
+def get_consultation_request(request_id: int) -> Optional[Dict[str, str]]:
+    """Get a consultation request by ID."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            """
+            SELECT id, user_id, receipt_photo_file_id, status, rejection_reason, created_at
+            FROM consultation_requests
+            WHERE id = ?
+            """,
+            (request_id,),
+        )
+        row = cursor.fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row[0],
+        "user_id": row[1],
+        "receipt_photo_file_id": row[2] or "",
+        "status": row[3],
+        "rejection_reason": row[4] or "",
+        "created_at": row[5],
+    }
+
+
+def update_consultation_request_status(
+    request_id: int, status: str, rejection_reason: Optional[str] = None
+) -> bool:
+    """Update consultation request status (approved/rejected)."""
+    with sqlite3.connect(DB_PATH) as conn:
+        if rejection_reason:
+            cursor = conn.execute(
+                """
+                UPDATE consultation_requests
+                SET status = ?, rejection_reason = ?
+                WHERE id = ?
+                """,
+                (status, rejection_reason, request_id),
+            )
+        else:
+            cursor = conn.execute(
+                """
+                UPDATE consultation_requests
+                SET status = ?
+                WHERE id = ?
+                """,
+                (status, request_id),
+            )
+        return cursor.rowcount > 0
+
+
+def list_pending_consultation_requests() -> Iterable[Dict[str, str]]:
+    """List all pending consultation requests."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            """
+            SELECT id, user_id, receipt_photo_file_id, status, rejection_reason, created_at
+            FROM consultation_requests
+            WHERE status = 'pending'
+            ORDER BY created_at ASC
+            """
+        )
+        for row in cursor.fetchall():
+            yield {
+                "id": row[0],
+                "user_id": row[1],
+                "receipt_photo_file_id": row[2] or "",
+                "status": row[3],
+                "rejection_reason": row[4] or "",
+                "created_at": row[5],
             }
 

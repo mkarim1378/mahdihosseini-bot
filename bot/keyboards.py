@@ -76,6 +76,11 @@ def admin_main_reply_keyboard() -> ReplyKeyboardMarkup:
     rows.append(
         [
             KeyboardButton("مدیریت کیس استادی 📋"),
+            KeyboardButton("پیام همگانی 📢"),
+        ]
+    )
+    rows.append(
+        [
             KeyboardButton("بازگشت به ربات ⬅️"),
         ]
     )
@@ -94,7 +99,6 @@ def admin_settings_keyboard(require_phone: bool) -> InlineKeyboardMarkup:
                 )
             ],
             [InlineKeyboardButton(toggle_label, callback_data="settings:toggle_phone")],
-            [InlineKeyboardButton("پیام همگانی 📢", callback_data="settings:broadcast")],
             [InlineKeyboardButton("بازگشت 🔙", callback_data="settings:back")],
         ]
     )
@@ -158,6 +162,48 @@ def register_phone_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def consultation_payment_keyboard() -> InlineKeyboardMarkup:
+    """Keyboard for consultation payment flow."""
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "💳 پرداخت کارت به کارت", callback_data="consultation:payment"
+                )
+            ]
+        ]
+    )
+
+
+def consultation_receipt_keyboard() -> InlineKeyboardMarkup:
+    """Keyboard for sending receipt."""
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "📤 ارسال رسید واریز", callback_data="consultation:send_receipt"
+                )
+            ]
+        ]
+    )
+
+
+def consultation_approval_keyboard(request_id: int) -> InlineKeyboardMarkup:
+    """Keyboard for admin to approve/reject consultation request."""
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "✅ تایید", callback_data=f"consultation:approve:{request_id}"
+                ),
+                InlineKeyboardButton(
+                    "❌ رد", callback_data=f"consultation:reject:{request_id}"
+                ),
+            ]
+        ]
+    )
+
+
 __all__ = [
     "REQUEST_CONTACT_KEYBOARD",
     "SERVICE_MENU_KEYBOARD",
@@ -170,6 +216,9 @@ __all__ = [
     "admin_broadcast_keyboard",
     "admin_broadcast_cancel_keyboard",
     "register_phone_keyboard",
+    "consultation_payment_keyboard",
+    "consultation_receipt_keyboard",
+    "consultation_approval_keyboard",
     "ReplyKeyboardRemove",
 ]
 

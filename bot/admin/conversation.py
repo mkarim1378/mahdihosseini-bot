@@ -158,6 +158,13 @@ async def admin_panel_main_message(
         await show_case_studies_menu(update.effective_chat.id, context)
         return ADMIN_PANEL_CASE_STUDIES_MENU
 
+    if text == "پیام همگانی 📢":
+        await update.message.reply_text(
+            "پیام را برای کدام گروه ارسال می‌کنید؟",
+            reply_markup=admin_broadcast_keyboard(),
+        )
+        return ADMIN_PANEL_BROADCAST_MENU
+
     if text == "بازگشت به ربات ⬅️":
         await update.message.reply_text("بازگشت به ربات.")
         await send_main_menu(update, context)
@@ -269,13 +276,6 @@ async def admin_panel_settings_callback(
             reply_markup=admin_settings_keyboard(new_state),
         )
         return ADMIN_PANEL_SETTINGS
-
-    if data == "settings:broadcast":
-        await query.edit_message_text(
-            "پیام را برای کدام گروه ارسال می‌کنید؟",
-            reply_markup=admin_broadcast_keyboard(),
-        )
-        return ADMIN_PANEL_BROADCAST_MENU
 
     if data == "settings:back":
         await query.edit_message_text("بازگشت به پنل ادمین.")
@@ -1931,6 +1931,200 @@ async def admin_add_cancel_callback(
     return ADMIN_PANEL_MANAGE
 
 
+async def handle_consultation_approval(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle consultation request approval."""
+    query = update.callback_query
+    await query.answer()
+
+    if not await ensure_private_chat(update, context):
+        return
+
+    user = update.effective_user
+    if not user or not is_admin_user(user.id):
+        await query.answer("شما به این بخش دسترسی ندارید.", show_alert=True)
+        return
+
+    try:
+        request_id = int(query.data.split(":")[-1])
+    except (ValueError, IndexError):
+        await query.answer("درخواست نامعتبر است.", show_alert=True)
+        return
+
+    request = database.get_consultation_request(request_id)
+    if not request:
+        await query.answer("درخواست یافت نشد.", show_alert=True)
+        return
+
+    if request["status"] != "pending":
+        await query.answer("این درخواست قبلاً پردازش شده است.", show_alert=True)
+        return
+
+    # Update status
+    database.update_consultation_request_status(request_id, "approved")
+
+    # Send confirmation to user
+    try:
+        await context.bot.send_message(
+            chat_id=request["user_id"],
+            text="✅ درخواست مشاوره شما تایید شد.",
+        )
+    except Exception as e:
+        logging.warning(f"Failed to send approval message to user {request['user_id']}: {e}")
+
+    # Request custom message from admin
+    context.user_data["consultation_send_message"] = request_id
+    context.user_data["consultation_user_id"] = request["user_id"]
+
+    await query.edit_message_caption(
+        caption=query.message.caption + "\n\n✅ تایید شد. لطفاً پیام دلخواه خود را برای کاربر ارسال کنید:",
+    )
+
+
+async def handle_consultation_rejection(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle consultation request rejection."""
+    query = update.callback_query
+    await query.answer()
+
+    if not await ensure_private_chat(update, context):
+        return
+
+    user = update.effective_user
+    if not user or not is_admin_user(user.id):
+        await query.answer("شما به این بخش دسترسی ندارید.", show_alert=True)
+        return
+
+    try:
+        request_id = int(query.data.split(":")[-1])
+    except (ValueError, IndexError):
+        await query.answer("درخواست نامعتبر است.", show_alert=True)
+        return
+
+    request = database.get_consultation_request(request_id)
+    if not request:
+        await query.answer("درخواست یافت نشد.", show_alert=True)
+        return
+
+    if request["status"] != "pending":
+        await query.answer("این درخواست قبلاً پردازش شده است.", show_alert=True)
+        return
+
+    # Request rejection reason
+    context.user_data["consultation_reject"] = request_id
+    context.user_data["consultation_user_id"] = request["user_id"]
+
+    await query.edit_message_caption(
+        caption=query.message.caption + "\n\n❌ رد شد. لطفاً دلیل رد را بنویسید:",
+    )
+
+
+async def handle_consultation_rejection_reason(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle rejection reason input."""
+    if not await ensure_private_chat(update, context):
+        return
+
+    user = update.effective_user
+    if not user or not is_admin_user(user.id):
+        return
+
+    request_id = context.user_data.get("consultation_reject")
+    user_id = context.user_data.get("consultation_user_id")
+
+    if not request_id or not user_id:
+        return
+
+    if not update.message or not update.message.text:
+        await update.message.reply_text("لطفاً یک متن ارسال کنید.")
+        return
+
+    rejection_reason = update.message.text.strip()
+    if not rejection_reason:
+        await update.message.reply_text("دلیل رد نمی‌تواند خالی باشد.")
+        return
+
+    # Update status with reason
+    database.update_consultation_request_status(request_id, "rejected", rejection_reason)
+
+    # Send rejection message to user
+    try:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"❌ درخواست مشاوره شما رد شد.\n\nدلیل: {rejection_reason}",
+        )
+    except Exception as e:
+        logging.warning(f"Failed to send rejection message to user {user_id}: {e}")
+
+    context.user_data.pop("consultation_reject", None)
+    context.user_data.pop("consultation_user_id", None)
+
+    await update.message.reply_text("پیام رد به کاربر ارسال شد.")
+
+
+async def handle_consultation_custom_message(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle custom message for approved consultation."""
+    if not await ensure_private_chat(update, context):
+        return
+
+    user = update.effective_user
+    if not user or not is_admin_user(user.id):
+        return
+
+    request_id = context.user_data.get("consultation_send_message")
+    user_id = context.user_data.get("consultation_user_id")
+
+    if not request_id or not user_id:
+        return
+
+    if not update.message:
+        return
+
+    # Forward message to user (supports text, photo, document, etc.)
+    try:
+        if update.message.text:
+            await context.bot.send_message(chat_id=user_id, text=update.message.text)
+        elif update.message.photo:
+            await context.bot.send_photo(
+                chat_id=user_id,
+                photo=update.message.photo[-1].file_id,
+                caption=update.message.caption,
+            )
+        elif update.message.document:
+            await context.bot.send_document(
+                chat_id=user_id,
+                document=update.message.document.file_id,
+                caption=update.message.caption,
+            )
+        elif update.message.video:
+            await context.bot.send_video(
+                chat_id=user_id,
+                video=update.message.video.file_id,
+                caption=update.message.caption,
+            )
+        elif update.message.voice:
+            await context.bot.send_voice(
+                chat_id=user_id,
+                voice=update.message.voice.file_id,
+                caption=update.message.caption,
+            )
+        else:
+            await update.message.reply_text("این نوع پیام پشتیبانی نمی‌شود.")
+            return
+
+        context.user_data.pop("consultation_send_message", None)
+        context.user_data.pop("consultation_user_id", None)
+        await update.message.reply_text("پیام به کاربر ارسال شد.")
+    except Exception as e:
+        logging.warning(f"Failed to send custom message to user {user_id}: {e}")
+        await update.message.reply_text("خطا در ارسال پیام.")
+
+
 async def admin_cancel(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> int:
@@ -2294,6 +2488,10 @@ __all__ = [
     "admin_cancel",
     "admin_panel_entry",
     "create_admin_conversation",
+    "handle_consultation_approval",
+    "handle_consultation_custom_message",
+    "handle_consultation_rejection",
+    "handle_consultation_rejection_reason",
     "handle_remove_admin_selection",
     "reply_with_admin_list",
     "show_remove_admin_menu",
