@@ -84,7 +84,11 @@ def register_handlers(application: Application) -> None:
             filters.ChatType.PRIVATE & filters.PHOTO, handle_receipt_photo
         )
     )
-    # Consultation admin handlers (work outside conversation)
+    # Menu selection handler - should be checked first for user menu items
+    application.add_handler(
+        MessageHandler(private_text & ~filters.COMMAND, handle_menu_selection)
+    )
+    # Consultation admin handlers (work outside conversation) - checked after menu
     application.add_handler(
         MessageHandler(
             private_text & ~filters.COMMAND,
@@ -96,9 +100,6 @@ def register_handlers(application: Application) -> None:
             filters.ChatType.PRIVATE & ~filters.COMMAND,
             handle_consultation_custom_message,
         )
-    )
-    application.add_handler(
-        MessageHandler(private_text & ~filters.COMMAND, handle_menu_selection)
     )
 
 
