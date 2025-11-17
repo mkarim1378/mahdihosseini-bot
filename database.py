@@ -37,11 +37,24 @@ def init_db() -> None:
                 title TEXT NOT NULL,
                 description TEXT NOT NULL,
                 registration_link TEXT NOT NULL,
+                cover_photo_file_id TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """
         )
         _ensure_webinars_schema(conn)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS webinar_content (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                webinar_id INTEGER NOT NULL,
+                file_id TEXT NOT NULL,
+                file_type TEXT NOT NULL,
+                content_order INTEGER DEFAULT 0,
+                FOREIGN KEY (webinar_id) REFERENCES webinars (id) ON DELETE CASCADE
+            )
+            """
+        )
 
 
 def _ensure_users_schema(conn: sqlite3.Connection) -> None:
@@ -114,6 +127,13 @@ def _ensure_webinars_schema(conn: sqlite3.Connection) -> None:
                     END
                 ELSE title
             END
+            """
+        )
+    if "cover_photo_file_id" not in columns:
+        conn.execute(
+            """
+            ALTER TABLE webinars
+            ADD COLUMN cover_photo_file_id TEXT
             """
         )
 
@@ -332,7 +352,7 @@ def list_webinars() -> Iterable[Dict[str, str]]:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
             """
-            SELECT id, title, description, registration_link, created_at
+            SELECT id, title, description, registration_link, cover_photo_file_id, created_at
             FROM webinars
             ORDER BY created_at DESC, id DESC
             """
@@ -342,6 +362,7 @@ def list_webinars() -> Iterable[Dict[str, str]]:
             title,
             description,
             registration_link,
+            cover_photo_file_id,
             created_at,
         ) in cursor.fetchall():
             yield {
@@ -349,6 +370,7 @@ def list_webinars() -> Iterable[Dict[str, str]]:
                 "title": title,
                 "description": description,
                 "registration_link": registration_link,
+                "cover_photo_file_id": cover_photo_file_id or "",
                 "created_at": created_at,
             }
 
@@ -357,7 +379,7 @@ def get_webinar(webinar_id: int) -> Optional[Dict[str, str]]:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
             """
-            SELECT id, title, description, registration_link, created_at
+            SELECT id, title, description, registration_link, cover_photo_file_id, created_at
             FROM webinars
             WHERE id = ?
             """,
@@ -371,18 +393,24 @@ def get_webinar(webinar_id: int) -> Optional[Dict[str, str]]:
         "title": row[1],
         "description": row[2],
         "registration_link": row[3],
-        "created_at": row[4],
+        "cover_photo_file_id": row[4] or "",
+        "created_at": row[5],
     }
 
 
-def create_webinar(title: str, description: str, registration_link: str) -> int:
+def create_webinar(
+    title: str,
+    description: str,
+    registration_link: str,
+    cover_photo_file_id: Optional[str] = None,
+) -> int:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
             """
-            INSERT INTO webinars (title, description, registration_link)
-            VALUES (?, ?, ?)
+            INSERT INTO webinars (title, description, registration_link, cover_photo_file_id)
+            VALUES (?, ?, ?, ?)
             """,
-            (title, description, registration_link),
+            (title, description, registration_link, cover_photo_file_id),
         )
         return cursor.lastrowid
 
@@ -393,6 +421,7 @@ def update_webinar(
     title: Optional[str] = None,
     description: Optional[str] = None,
     registration_link: Optional[str] = None,
+    cover_photo_file_id: Optional[str] = None,
 ) -> bool:
     fields = []
     params = []
@@ -405,6 +434,9 @@ def update_webinar(
     if registration_link is not None:
         fields.append("registration_link = ?")
         params.append(registration_link)
+    if cover_photo_file_id is not None:
+        fields.append("cover_photo_file_id = ?")
+        params.append(cover_photo_file_id)
     if not fields:
         return False
     params.append(webinar_id)
@@ -428,4 +460,57 @@ def delete_webinar(webinar_id: int) -> bool:
             (webinar_id,),
         )
         return cursor.rowcount > 0
+
+
+def add_webinar_content(webinar_id: int, file_id: str, file_type: str, content_order: int = 0) -> int:
+    """Add content (video, voice, etc.) to a webinar."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO webinar_content (webinar_id, file_id, file_type, content_order)
+            VALUES (?, ?, ?, ?)
+            """,
+            (webinar_id, file_id, file_type, content_order),
+        )
+        return cursor.lastrowid
+
+
+def get_webinar_content(webinar_id: int) -> Iterable[Dict[str, str]]:
+    """Get all content for a webinar, ordered by content_order."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            """
+            SELECT id, file_id, file_type, content_order
+            FROM webinar_content
+            WHERE webinar_id = ?
+            ORDER BY content_order ASC, id ASC
+            """,
+            (webinar_id,),
+        )
+        for content_id, file_id, file_type, content_order in cursor.fetchall():
+            yield {
+                "id": content_id,
+                "file_id": file_id,
+                "file_type": file_type,
+                "content_order": content_order,
+            }
+
+
+def delete_webinar_content(content_id: int) -> bool:
+    """Delete a specific content item from a webinar."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            "DELETE FROM webinar_content WHERE id = ?",
+            (content_id,),
+        )
+        return cursor.rowcount > 0
+
+
+def clear_webinar_content(webinar_id: int) -> None:
+    """Delete all content for a webinar."""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            "DELETE FROM webinar_content WHERE webinar_id = ?",
+            (webinar_id,),
+        )
 

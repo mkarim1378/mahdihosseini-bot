@@ -14,6 +14,7 @@ from .menu import (
     handle_contact,
     handle_membership_verification,
     handle_menu_selection,
+    handle_register_phone_callback,
     start,
 )
 
@@ -26,6 +27,12 @@ def register_handlers(application: Application) -> None:
         CallbackQueryHandler(
             handle_membership_verification,
             pattern=f"^{MEMBERSHIP_VERIFY_CALLBACK}$",
+        )
+    )
+    application.add_handler(
+        CallbackQueryHandler(
+            handle_register_phone_callback,
+            pattern="^register_phone$",
         )
     )
     application.add_handler(

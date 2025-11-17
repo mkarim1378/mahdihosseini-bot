@@ -53,6 +53,7 @@ def admin_main_keyboard() -> InlineKeyboardMarkup:
         [
             [InlineKeyboardButton("تنظیمات ربات ⚙️", callback_data="panel:settings")],
             [InlineKeyboardButton("آمار گیری 📊", callback_data="panel:stats")],
+            [InlineKeyboardButton("مدیریت وبینارها 🎥", callback_data="panel:webinars")],
             [InlineKeyboardButton("بازگشت به ربات ⬅️", callback_data="panel:back")],
         ]
     )
@@ -66,6 +67,7 @@ def admin_main_reply_keyboard() -> ReplyKeyboardMarkup:
             KeyboardButton("آمار گیری 📊"),
         ]
     )
+    rows.append([KeyboardButton("مدیریت وبینارها 🎥")])
     rows.append([KeyboardButton("بازگشت به ربات ⬅️")])
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
@@ -82,11 +84,6 @@ def admin_settings_keyboard(require_phone: bool) -> InlineKeyboardMarkup:
                 )
             ],
             [InlineKeyboardButton(toggle_label, callback_data="settings:toggle_phone")],
-            [
-                InlineKeyboardButton(
-                    "مدیریت وبینارها 🎥", callback_data="settings:webinars"
-                )
-            ],
             [InlineKeyboardButton("پیام همگانی 📢", callback_data="settings:broadcast")],
             [InlineKeyboardButton("بازگشت 🔙", callback_data="settings:back")],
         ]
@@ -139,6 +136,19 @@ def admin_broadcast_cancel_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def register_phone_keyboard() -> InlineKeyboardMarkup:
+    """Keyboard for requesting phone number registration."""
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "ثبت نام در ربات", callback_data="register_phone"
+                )
+            ]
+        ]
+    )
+
+
 __all__ = [
     "REQUEST_CONTACT_KEYBOARD",
     "SERVICE_MENU_KEYBOARD",
@@ -150,6 +160,7 @@ __all__ = [
     "admin_add_cancel_keyboard",
     "admin_broadcast_keyboard",
     "admin_broadcast_cancel_keyboard",
+    "register_phone_keyboard",
     "ReplyKeyboardRemove",
 ]
 

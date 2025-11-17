@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -21,7 +23,12 @@ from .guards import (
     is_user_in_channel,
     prompt_for_channel_membership,
 )
-from .keyboards import REQUEST_CONTACT_KEYBOARD, SERVICE_MENU_KEYBOARD, membership_keyboard
+from .keyboards import (
+    REQUEST_CONTACT_KEYBOARD,
+    SERVICE_MENU_KEYBOARD,
+    membership_keyboard,
+    register_phone_keyboard,
+)
 from .utils import (
     ensure_user_record,
     extract_phone_last10,
@@ -111,7 +118,14 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         "شماره موبایل شما ذخیره شد.",
         reply_markup=ReplyKeyboardRemove(),
     )
-    await send_main_menu(update, context)
+    
+    # Check if there's a pending webinar
+    pending_webinar_id = context.user_data.get("pending_webinar_id")
+    if pending_webinar_id:
+        context.user_data.pop("pending_webinar_id", None)
+        await send_webinar_content(update, context, pending_webinar_id)
+    else:
+        await send_main_menu(update, context)
 
 
 async def handle_menu_selection(
@@ -134,7 +148,8 @@ async def handle_menu_selection(
             )
         webinar_map = context.user_data.get("webinar_menu")
         if webinar_map and text in webinar_map:
-            webinar = database.get_webinar(webinar_map[text])
+            webinar_id = webinar_map[text]
+            webinar = database.get_webinar(webinar_id)
             if not webinar:
                 await update.message.reply_text(
                     "این وبینار دیگر در دسترس نیست.",
@@ -143,18 +158,19 @@ async def handle_menu_selection(
                 context.user_data.pop("webinar_menu", None)
                 return
 
-            keyboard = InlineKeyboardMarkup(
-                [
-                    [
-                        InlineKeyboardButton(
-                            "ثبت‌نام در وبینار", url=webinar["registration_link"]
-                        )
-                    ]
-                ]
-            )
-            await update.message.reply_text(
-                webinar["description"], reply_markup=keyboard
-            )
+            # Check if user has phone number
+            user = update.effective_user
+            if not user or not database.user_has_phone(user.id):
+                # User doesn't have phone, show registration message
+                context.user_data["pending_webinar_id"] = webinar_id
+                await update.message.reply_text(
+                    "جهت ثبت نام در ربات دکمه رو بزنید",
+                    reply_markup=register_phone_keyboard(),
+                )
+                return
+
+            # User has phone, show webinar content
+            await send_webinar_content(update, context, webinar_id)
             return
 
         if text == "وبینار ها":
@@ -210,6 +226,121 @@ async def handle_menu_selection(
             )
 
 
+async def send_webinar_content(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, webinar_id: int
+) -> None:
+    """Send webinar content to user."""
+    webinar = database.get_webinar(webinar_id)
+    if not webinar:
+        await update.message.reply_text("این وبینار دیگر در دسترس نیست.")
+        return
+
+    # Send cover photo if available
+    if webinar.get("cover_photo_file_id"):
+        try:
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=webinar["cover_photo_file_id"],
+                caption=webinar["description"],
+            )
+        except Exception:
+            # If photo fails, send description as text
+            await update.message.reply_text(webinar["description"])
+    else:
+        await update.message.reply_text(webinar["description"])
+
+    # Send registration link
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "ثبت‌نام در وبینار", url=webinar["registration_link"]
+                )
+            ]
+        ]
+    )
+    await update.message.reply_text(
+        "لینک ثبت‌نام:", reply_markup=keyboard
+    )
+
+    # Send content items
+    content_items = list(database.get_webinar_content(webinar_id))
+    for item in content_items:
+        try:
+            if item["file_type"] == "video":
+                await context.bot.send_video(
+                    chat_id=update.effective_chat.id,
+                    video=item["file_id"],
+                )
+            elif item["file_type"] == "voice":
+                await context.bot.send_voice(
+                    chat_id=update.effective_chat.id,
+                    voice=item["file_id"],
+                )
+            elif item["file_type"] == "audio":
+                await context.bot.send_audio(
+                    chat_id=update.effective_chat.id,
+                    audio=item["file_id"],
+                )
+            elif item["file_type"] == "document":
+                await context.bot.send_document(
+                    chat_id=update.effective_chat.id,
+                    document=item["file_id"],
+                )
+            elif item["file_type"] == "photo":
+                await context.bot.send_photo(
+                    chat_id=update.effective_chat.id,
+                    photo=item["file_id"],
+                )
+            elif item["file_type"] == "video_note":
+                await context.bot.send_video_note(
+                    chat_id=update.effective_chat.id,
+                    video_note=item["file_id"],
+                )
+        except Exception as e:
+            logging.warning(f"Failed to send webinar content {item['id']}: {e}")
+            continue
+
+
+async def handle_register_phone_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle register phone button callback."""
+    query = update.callback_query
+    await query.answer()
+
+    if not await ensure_private_chat(update, context):
+        return
+    if not await ensure_channel_membership(update, context):
+        return
+
+    user = update.effective_user
+    if not user:
+        return
+
+    # Check if user already has phone
+    if database.user_has_phone(user.id):
+        # User already has phone, show webinar if pending
+        pending_webinar_id = context.user_data.get("pending_webinar_id")
+        if pending_webinar_id:
+            context.user_data.pop("pending_webinar_id", None)
+            await query.edit_message_text("شماره شما قبلاً ثبت شده است.")
+            await send_webinar_content(update, context, pending_webinar_id)
+        else:
+            await query.edit_message_text("شماره شما قبلاً ثبت شده است.")
+        return
+
+    # Request phone number
+    await query.edit_message_text(
+        "لطفاً شماره موبایل خود را از طریق دکمه زیر ارسال کنید.",
+    )
+    await context.bot.send_message(
+        chat_id=query.message.chat_id,
+        text="شماره موبایل خود را ارسال کنید:",
+        reply_markup=REQUEST_CONTACT_KEYBOARD,
+    )
+
+
 async def handle_membership_verification(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -243,7 +374,9 @@ __all__ = [
     "handle_contact",
     "handle_membership_verification",
     "handle_menu_selection",
+    "handle_register_phone_callback",
     "send_main_menu",
+    "send_webinar_content",
     "start",
 ]
 

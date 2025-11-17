@@ -27,6 +27,8 @@ from ..constants import (
     ADMIN_PANEL_WEBINAR_ADD_DESCRIPTION,
     ADMIN_PANEL_WEBINAR_ADD_LINK,
     ADMIN_PANEL_WEBINAR_ADD_TITLE,
+    ADMIN_PANEL_WEBINAR_ADD_COVER,
+    ADMIN_PANEL_WEBINAR_ADD_CONTENT,
     ADMIN_PANEL_WEBINAR_EDIT_DESCRIPTION,
     ADMIN_PANEL_WEBINAR_EDIT_LINK,
     ADMIN_PANEL_WEBINAR_EDIT_TITLE,
@@ -125,6 +127,10 @@ async def admin_panel_main_message(
         await update.message.reply_text("\n".join(lines))
         return ADMIN_PANEL_MAIN
 
+    if text == "مدیریت وبینارها 🎥":
+        await show_webinar_menu(update.effective_chat.id, context)
+        return ADMIN_PANEL_WEBINAR_MENU
+
     if text == "بازگشت به ربات ⬅️":
         await update.message.reply_text("بازگشت به ربات.")
         await send_main_menu(update, context)
@@ -175,6 +181,10 @@ async def admin_panel_main_callback(
             reply_markup=admin_main_reply_keyboard(),
         )
         return ADMIN_PANEL_MAIN
+
+    if data == "panel:webinars":
+        await show_webinar_menu(query, context)
+        return ADMIN_PANEL_WEBINAR_MENU
 
     if data == "panel:back":
         await query.edit_message_text("بازگشت به ربات.")
@@ -230,10 +240,6 @@ async def admin_panel_settings_callback(
             reply_markup=admin_broadcast_keyboard(),
         )
         return ADMIN_PANEL_BROADCAST_MENU
-
-    if data == "settings:webinars":
-        await show_webinar_menu(query, context)
-        return ADMIN_PANEL_WEBINAR_MENU
 
     if data == "settings:back":
         await query.edit_message_text("بازگشت به پنل ادمین.")
@@ -429,6 +435,13 @@ WEBINAR_CANCEL_MARKUP = InlineKeyboardMarkup(
     [[InlineKeyboardButton("انصراف 🔙", callback_data="webinar:menu")]]
 )
 
+WEBINAR_CONTENT_MARKUP = InlineKeyboardMarkup(
+    [
+        [InlineKeyboardButton("پایان ✅", callback_data="webinar:finish")],
+        [InlineKeyboardButton("انصراف 🔙", callback_data="webinar:menu")],
+    ]
+)
+
 
 def _webinar_preview_label(description: str) -> str:
     first_line = (description or "").strip().splitlines()[0] if description else ""
@@ -526,11 +539,12 @@ async def admin_panel_webinar_callback(
     if data == "webinar:back":
         context.user_data.pop("webinar_flow", None)
         context.user_data.pop("webinar_selected", None)
-        await query.edit_message_text(
-            "بخش تنظیمات ربات:",
-            reply_markup=admin_settings_keyboard(phone_requirement_enabled(context)),
+        await query.edit_message_text("بازگشت به پنل ادمین.")
+        await query.message.reply_text(
+            "به پنل ادمین خوش آمدید. یکی از گزینه‌ها را انتخاب کنید:",
+            reply_markup=admin_main_reply_keyboard(),
         )
-        return ADMIN_PANEL_SETTINGS
+        return ADMIN_PANEL_MAIN
 
     if data == "webinar:menu":
         context.user_data.pop("webinar_flow", None)
@@ -538,7 +552,7 @@ async def admin_panel_webinar_callback(
         return ADMIN_PANEL_WEBINAR_MENU
 
     if data == "webinar:add":
-        context.user_data["webinar_flow"] = {}
+        context.user_data["webinar_flow"] = {"content_items": []}
         await query.edit_message_text(
             "عنوان وبینار را ارسال کنید.",
             reply_markup=WEBINAR_CANCEL_MARKUP,
@@ -618,6 +632,34 @@ async def admin_panel_webinar_callback(
             )
         return ADMIN_PANEL_WEBINAR_MENU
 
+    if data == "webinar:finish":
+        flow = context.user_data.get("webinar_flow") or {}
+        title = flow.get("title")
+        description = flow.get("description")
+        registration_link = flow.get("registration_link")
+        cover_photo_file_id = flow.get("cover_photo_file_id")
+        content_items = flow.get("content_items", [])
+        
+        if not title or not description or not registration_link:
+            await query.answer("اطلاعات وبینار ناقص است.", show_alert=True)
+            return ADMIN_PANEL_WEBINAR_ADD_CONTENT
+        
+        # Create webinar
+        webinar_id = database.create_webinar(
+            title, description, registration_link, cover_photo_file_id
+        )
+        
+        # Add content items
+        for item in content_items:
+            database.add_webinar_content(
+                webinar_id, item["file_id"], item["file_type"], item["order"]
+            )
+        
+        context.user_data.pop("webinar_flow", None)
+        await query.answer("وبینار با موفقیت ثبت شد ✅", show_alert=True)
+        await show_webinar_menu(query, context, status="وبینار جدید ثبت شد ✅")
+        return ADMIN_PANEL_WEBINAR_MENU
+
     await query.answer("گزینه نامعتبر است.", show_alert=True)
     await show_webinar_menu(query, context)
     return ADMIN_PANEL_WEBINAR_MENU
@@ -693,11 +735,13 @@ async def admin_webinar_add_link(
         )
         return ADMIN_PANEL_WEBINAR_ADD_LINK
 
-    database.create_webinar(title, description, link)
-    context.user_data.pop("webinar_flow", None)
-    await update.message.reply_text("وبینار جدید ثبت شد ✅")
-    await show_webinar_menu(update.effective_chat.id, context)
-    return ADMIN_PANEL_WEBINAR_MENU
+    flow["registration_link"] = link
+    context.user_data["webinar_flow"] = flow
+    await update.message.reply_text(
+        "عکس کاور وبینار را ارسال کنید (یا /skip برای رد کردن).",
+        reply_markup=WEBINAR_CANCEL_MARKUP,
+    )
+    return ADMIN_PANEL_WEBINAR_ADD_COVER
 
 
 async def admin_webinar_edit_description(
@@ -789,12 +833,113 @@ async def admin_webinar_add_title(
         )
         return ADMIN_PANEL_WEBINAR_ADD_TITLE
 
-    context.user_data["webinar_flow"] = {"title": title}
+    flow = context.user_data.get("webinar_flow") or {}
+    flow["title"] = title
+    context.user_data["webinar_flow"] = flow
     await update.message.reply_text(
         "توضیحات وبینار را ارسال کن.",
         reply_markup=WEBINAR_CANCEL_MARKUP,
     )
     return ADMIN_PANEL_WEBINAR_ADD_DESCRIPTION
+
+
+async def admin_webinar_add_cover(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
+    if not await ensure_registered_user(update, context):
+        return ConversationHandler.END
+
+    if not is_admin_user(update.effective_user.id):
+        await update.message.reply_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    flow = context.user_data.get("webinar_flow") or {}
+    
+    # Check if it's a skip command
+    if update.message.text and update.message.text.strip() == "/skip":
+        flow["cover_photo_file_id"] = None
+    elif update.message.photo:
+        # Get the largest photo
+        photo = update.message.photo[-1]
+        flow["cover_photo_file_id"] = photo.file_id
+    else:
+        await update.message.reply_text(
+            "لطفاً یک عکس ارسال کنید یا /skip را بزنید.",
+            reply_markup=WEBINAR_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_WEBINAR_ADD_COVER
+
+    context.user_data["webinar_flow"] = flow
+    await update.message.reply_text(
+        "محتوای وبینار را ارسال کنید (ویدیو، وویس، فایل و...).\n"
+        "می‌توانید چندین محتوا ارسال کنید.\n"
+        "بعد از اتمام، دکمه «پایان ✅» را بزنید.",
+        reply_markup=WEBINAR_CONTENT_MARKUP,
+    )
+    return ADMIN_PANEL_WEBINAR_ADD_CONTENT
+
+
+async def admin_webinar_add_content(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
+    if not await ensure_registered_user(update, context):
+        return ConversationHandler.END
+
+    if not is_admin_user(update.effective_user.id):
+        await update.message.reply_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    flow = context.user_data.get("webinar_flow") or {}
+    content_items = flow.get("content_items", [])
+    
+    file_id = None
+    file_type = None
+    
+    if update.message.video:
+        file_id = update.message.video.file_id
+        file_type = "video"
+    elif update.message.voice:
+        file_id = update.message.voice.file_id
+        file_type = "voice"
+    elif update.message.audio:
+        file_id = update.message.audio.file_id
+        file_type = "audio"
+    elif update.message.document:
+        file_id = update.message.document.file_id
+        file_type = "document"
+    elif update.message.photo:
+        file_id = update.message.photo[-1].file_id
+        file_type = "photo"
+    elif update.message.video_note:
+        file_id = update.message.video_note.file_id
+        file_type = "video_note"
+    
+    if file_id and file_type:
+        content_items.append({
+            "file_id": file_id,
+            "file_type": file_type,
+            "order": len(content_items)
+        })
+        flow["content_items"] = content_items
+        context.user_data["webinar_flow"] = flow
+        await update.message.reply_text(
+            f"محتوای {len(content_items)} ثبت شد.\n"
+            "می‌توانید محتوای دیگری ارسال کنید یا دکمه «پایان ✅» را بزنید.",
+            reply_markup=WEBINAR_CONTENT_MARKUP,
+        )
+    else:
+        await update.message.reply_text(
+            "لطفاً یک فایل (ویدیو، وویس، فایل و...) ارسال کنید.",
+            reply_markup=WEBINAR_CONTENT_MARKUP,
+        )
+    
+    return ADMIN_PANEL_WEBINAR_ADD_CONTENT
 
 
 async def admin_webinar_edit_title(
@@ -1155,6 +1300,20 @@ def create_admin_conversation() -> ConversationHandler:
             ADMIN_PANEL_WEBINAR_ADD_LINK: [
                 MessageHandler(
                     private_text & ~filters.COMMAND, admin_webinar_add_link
+                ),
+                CallbackQueryHandler(admin_panel_webinar_callback, pattern="^webinar:"),
+            ],
+            ADMIN_PANEL_WEBINAR_ADD_COVER: [
+                MessageHandler(
+                    filters.PHOTO | (filters.TEXT & filters.Regex("^/skip$")),
+                    admin_webinar_add_cover
+                ),
+                CallbackQueryHandler(admin_panel_webinar_callback, pattern="^webinar:"),
+            ],
+            ADMIN_PANEL_WEBINAR_ADD_CONTENT: [
+                MessageHandler(
+                    filters.VIDEO | filters.VOICE | filters.AUDIO | filters.DOCUMENT | filters.PHOTO | filters.VIDEO_NOTE,
+                    admin_webinar_add_content
                 ),
                 CallbackQueryHandler(admin_panel_webinar_callback, pattern="^webinar:"),
             ],
