@@ -192,7 +192,7 @@ async def handle_menu_selection(
             webinar = database.get_webinar(webinar_id)
             if not webinar:
                 await update.message.reply_text(
-                    "این وبینار دیگر در دسترس نیست.",
+                    "این وبینار دیگر در دسترس نیست!",
                     reply_markup=build_main_menu_keyboard(user_id),
                 )
                 context.user_data.pop("webinar_menu", None)
