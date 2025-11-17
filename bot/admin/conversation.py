@@ -54,7 +54,6 @@ from ..guards import (
     ensure_registered_user,
 )
 from ..keyboards import (
-    REQUEST_CONTACT_KEYBOARD,
     admin_add_cancel_keyboard,
     admin_broadcast_cancel_keyboard,
     admin_broadcast_keyboard,
