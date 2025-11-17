@@ -67,10 +67,18 @@ def admin_main_reply_keyboard() -> ReplyKeyboardMarkup:
             KeyboardButton("آمار گیری 📊"),
         ]
     )
-    rows.append([KeyboardButton("مدیریت وبینارها 🎥")])
-    rows.append([KeyboardButton("مدیریت دراپ لرنینگ 📚")])
-    rows.append([KeyboardButton("مدیریت کیس استادی 📋")])
-    rows.append([KeyboardButton("بازگشت به ربات ⬅️")])
+    rows.append(
+        [
+            KeyboardButton("مدیریت وبینارها 🎥"),
+            KeyboardButton("مدیریت دراپ لرنینگ 📚"),
+        ]
+    )
+    rows.append(
+        [
+            KeyboardButton("مدیریت کیس استادی 📋"),
+            KeyboardButton("بازگشت به ربات ⬅️"),
+        ]
+    )
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
 

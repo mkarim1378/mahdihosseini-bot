@@ -504,7 +504,11 @@ async def show_webinar_menu(
 
     markup = InlineKeyboardMarkup(keyboard)
     if hasattr(target, "edit_message_text"):
-        await target.edit_message_text(text, reply_markup=markup)
+        try:
+            await target.edit_message_text(text, reply_markup=markup)
+        except Exception:
+            # If edit fails, send new message
+            await context.bot.send_message(chat_id=target.message.chat_id, text=text, reply_markup=markup)
     else:
         await context.bot.send_message(chat_id=target, text=text, reply_markup=markup)
 
@@ -659,8 +663,25 @@ async def admin_panel_webinar_callback(
             )
         
         context.user_data.pop("webinar_flow", None)
-        await query.answer("وبینار با موفقیت ثبت شد ✅", show_alert=True)
-        await show_webinar_menu(query, context, status="وبینار جدید ثبت شد ✅")
+        await query.answer("وبینار با موفقیت ثبت شد ✅", show_alert=False)
+        # Edit the current message to show menu
+        webinars = list(database.list_webinars())
+        keyboard = [
+            [InlineKeyboardButton("➕ افزودن وبینار", callback_data="webinar:add")]
+        ]
+        for webinar in webinars:
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        (webinar["title"] or "").strip()
+                        or _webinar_preview_label(webinar["description"]),
+                        callback_data=f"webinar:select:{webinar['id']}",
+                    )
+                ]
+            )
+        keyboard.append([InlineKeyboardButton("بازگشت 🔙", callback_data="webinar:back")])
+        text = "مدیریت وبینارها:\n\nوبینار جدید ثبت شد ✅"
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         return ADMIN_PANEL_WEBINAR_MENU
 
     await query.answer("گزینه نامعتبر است.", show_alert=True)
@@ -792,8 +813,25 @@ async def admin_panel_drop_learning_callback(
             )
         
         context.user_data.pop("drop_learning_flow", None)
-        await query.answer("دراپ لرنینگ با موفقیت ثبت شد ✅", show_alert=True)
-        await show_drop_learning_menu(query, context, status="دراپ لرنینگ جدید ثبت شد ✅")
+        await query.answer("دراپ لرنینگ با موفقیت ثبت شد ✅", show_alert=False)
+        # Edit the current message to show menu
+        items = list(database.list_drop_learning())
+        keyboard = [
+            [InlineKeyboardButton("➕ افزودن دراپ لرنینگ", callback_data="drop_learning:add")]
+        ]
+        for item in items:
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        (item["title"] or "").strip()
+                        or _drop_learning_preview_label(item["description"]),
+                        callback_data=f"drop_learning:select:{item['id']}",
+                    )
+                ]
+            )
+        keyboard.append([InlineKeyboardButton("بازگشت 🔙", callback_data="drop_learning:back")])
+        text = "مدیریت دراپ لرنینگ:\n\nدراپ لرنینگ جدید ثبت شد ✅"
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         return ADMIN_PANEL_DROP_LEARNING_MENU
 
     await query.answer("گزینه نامعتبر است.", show_alert=True)
@@ -925,8 +963,25 @@ async def admin_panel_case_studies_callback(
             )
         
         context.user_data.pop("case_studies_flow", None)
-        await query.answer("کیس استادی با موفقیت ثبت شد ✅", show_alert=True)
-        await show_case_studies_menu(query, context, status="کیس استادی جدید ثبت شد ✅")
+        await query.answer("کیس استادی با موفقیت ثبت شد ✅", show_alert=False)
+        # Edit the current message to show menu
+        items = list(database.list_case_studies())
+        keyboard = [
+            [InlineKeyboardButton("➕ افزودن کیس استادی", callback_data="case_studies:add")]
+        ]
+        for item in items:
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        (item["title"] or "").strip()
+                        or _case_studies_preview_label(item["description"]),
+                        callback_data=f"case_studies:select:{item['id']}",
+                    )
+                ]
+            )
+        keyboard.append([InlineKeyboardButton("بازگشت 🔙", callback_data="case_studies:back")])
+        text = "مدیریت کیس استادی:\n\nکیس استادی جدید ثبت شد ✅"
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         return ADMIN_PANEL_CASE_STUDIES_MENU
 
     await query.answer("گزینه نامعتبر است.", show_alert=True)
@@ -1935,7 +1990,11 @@ async def show_drop_learning_menu(
 
     markup = InlineKeyboardMarkup(keyboard)
     if hasattr(target, "edit_message_text"):
-        await target.edit_message_text(text, reply_markup=markup)
+        try:
+            await target.edit_message_text(text, reply_markup=markup)
+        except Exception:
+            # If edit fails, send new message
+            await context.bot.send_message(chat_id=target.message.chat_id, text=text, reply_markup=markup)
     else:
         await context.bot.send_message(chat_id=target, text=text, reply_markup=markup)
 
@@ -2014,7 +2073,11 @@ async def show_case_studies_menu(
 
     markup = InlineKeyboardMarkup(keyboard)
     if hasattr(target, "edit_message_text"):
-        await target.edit_message_text(text, reply_markup=markup)
+        try:
+            await target.edit_message_text(text, reply_markup=markup)
+        except Exception:
+            # If edit fails, send new message
+            await context.bot.send_message(chat_id=target.message.chat_id, text=text, reply_markup=markup)
     else:
         await context.bot.send_message(chat_id=target, text=text, reply_markup=markup)
 
