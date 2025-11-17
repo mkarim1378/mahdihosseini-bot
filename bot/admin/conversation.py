@@ -54,6 +54,7 @@ from ..guards import (
     ensure_registered_user,
 )
 from ..keyboards import (
+    REQUEST_CONTACT_KEYBOARD,
     admin_add_cancel_keyboard,
     admin_broadcast_cancel_keyboard,
     admin_broadcast_keyboard,
@@ -307,8 +308,12 @@ async def admin_panel_manage_callback(
 
     if data == "manage:add":
         await query.edit_message_text(
-            "شماره موبایل کاربر را ارسال کنید (۱۰ رقم پایانی).",
-            reply_markup=admin_add_cancel_keyboard(),
+            "لطفاً شماره موبایل کاربر را از طریق دکمه زیر ارسال کنید.",
+        )
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="شماره موبایل کاربر را ارسال کنید:",
+            reply_markup=REQUEST_CONTACT_KEYBOARD,
         )
         return ADMIN_PANEL_ADD_PHONE
 
@@ -1868,14 +1873,22 @@ async def admin_add_phone(
             await update.message.reply_text("دسترسی شما قطع شده است.")
         return ConversationHandler.END
 
-    phone_input = (update.message.text or "").strip()
+    # Only accept contact, not text
+    if not update.message or not update.message.contact:
+        if update.message:
+            await update.message.reply_text(
+                "لطفاً شماره موبایل را از طریق دکمه ارسال کنید، نه با تایپ کردن.",
+                reply_markup=REQUEST_CONTACT_KEYBOARD,
+            )
+        return ADMIN_PANEL_ADD_PHONE
 
-    phone_number = extract_phone_last10(phone_input)
+    contact = update.message.contact
+    phone_number = extract_phone_last10(contact.phone_number)
     if not phone_number:
         if update.message:
             await update.message.reply_text(
-                "شماره موبایل معتبر نیست. لطفاً دوباره شماره را وارد کنید.",
-                reply_markup=admin_add_cancel_keyboard(),
+                "شماره موبایل معتبر نیست. لطفاً دوباره شماره را ارسال کنید.",
+                reply_markup=REQUEST_CONTACT_KEYBOARD,
             )
         return ADMIN_PANEL_ADD_PHONE
 
@@ -1884,7 +1897,7 @@ async def admin_add_phone(
         if update.message:
             await update.message.reply_text(
                 "هیچ کاربری با این شماره موبایل در ربات ثبت نشده است.",
-                reply_markup=admin_add_cancel_keyboard(),
+                reply_markup=REQUEST_CONTACT_KEYBOARD,
             )
         return ADMIN_PANEL_ADD_PHONE
 
@@ -2156,7 +2169,7 @@ def create_admin_conversation() -> ConversationHandler:
                 ),
             ],
             ADMIN_PANEL_ADD_PHONE: [
-                MessageHandler(private_text & ~filters.COMMAND, admin_add_phone),
+                MessageHandler(filters.ChatType.PRIVATE & filters.CONTACT, admin_add_phone),
                 CallbackQueryHandler(admin_add_cancel_callback, pattern="^add:cancel$"),
             ],
             ADMIN_PANEL_REMOVE_PHONE: [
