@@ -119,11 +119,20 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         reply_markup=ReplyKeyboardRemove(),
     )
     
-    # Check if there's a pending webinar
+    # Check if there's a pending item
     pending_webinar_id = context.user_data.get("pending_webinar_id")
+    pending_drop_learning_id = context.user_data.get("pending_drop_learning_id")
+    pending_case_study_id = context.user_data.get("pending_case_study_id")
+    
     if pending_webinar_id:
         context.user_data.pop("pending_webinar_id", None)
         await send_webinar_content(update, context, pending_webinar_id)
+    elif pending_drop_learning_id:
+        context.user_data.pop("pending_drop_learning_id", None)
+        await send_drop_learning_content(update, context, pending_drop_learning_id)
+    elif pending_case_study_id:
+        context.user_data.pop("pending_case_study_id", None)
+        await send_case_study_content(update, context, pending_case_study_id)
     else:
         await send_main_menu(update, context)
 
@@ -147,6 +156,8 @@ async def handle_menu_selection(
             "تنظیمات ربات ⚙️",
             "آمار گیری 📊",
             "مدیریت وبینارها 🎥",
+            "مدیریت دراپ لرنینگ 📚",
+            "مدیریت کیس استادی 📋",
             "بازگشت به ربات ⬅️",
         ]
         if text in admin_panel_texts:
@@ -210,8 +221,124 @@ async def handle_menu_selection(
             )
             return
 
+        if text == "دراپ لرنینگ":
+            items = list(database.list_drop_learning())
+            if not items:
+                await update.message.reply_text(
+                    "در حال حاضر دراپ لرنینگی ثبت نشده است.",
+                    reply_markup=build_main_menu_keyboard(user_id),
+                )
+                return
+
+            titles = [item["title"] or "دراپ لرنینگ بدون عنوان" for item in items]
+            rows: list[list[KeyboardButton]] = []
+            for i in range(0, len(titles), 2):
+                chunk = [KeyboardButton(t) for t in titles[i : i + 2]]
+                rows.append(chunk)
+            rows.append([KeyboardButton("بازگشت")])
+
+            drop_learning_keyboard = ReplyKeyboardMarkup(rows, resize_keyboard=True)
+            context.user_data["drop_learning_menu"] = {
+                (item["title"] or "دراپ لرنینگ بدون عنوان"): item["id"]
+                for item in items
+            }
+            await update.message.reply_text(
+                "یکی از دراپ لرنینگ‌های زیر را انتخاب کن:",
+                reply_markup=drop_learning_keyboard,
+            )
+            return
+
+        if text == "Case Studies":
+            items = list(database.list_case_studies())
+            if not items:
+                await update.message.reply_text(
+                    "در حال حاضر کیس استادی ثبت نشده است.",
+                    reply_markup=build_main_menu_keyboard(user_id),
+                )
+                return
+
+            titles = [item["title"] or "کیس استادی بدون عنوان" for item in items]
+            rows: list[list[KeyboardButton]] = []
+            for i in range(0, len(titles), 2):
+                chunk = [KeyboardButton(t) for t in titles[i : i + 2]]
+                rows.append(chunk)
+            rows.append([KeyboardButton("بازگشت")])
+
+            case_studies_keyboard = ReplyKeyboardMarkup(rows, resize_keyboard=True)
+            context.user_data["case_studies_menu"] = {
+                (item["title"] or "کیس استادی بدون عنوان"): item["id"]
+                for item in items
+            }
+            await update.message.reply_text(
+                "یکی از کیس استادی‌های زیر را انتخاب کن:",
+                reply_markup=case_studies_keyboard,
+            )
+            return
+
+        # Handle drop learning selection
+        drop_learning_map = context.user_data.get("drop_learning_menu")
+        if drop_learning_map and text in drop_learning_map:
+            item_id = drop_learning_map[text]
+            item = database.get_drop_learning(item_id)
+            if not item:
+                await update.message.reply_text(
+                    "این دراپ لرنینگ دیگر در دسترس نیست.",
+                    reply_markup=build_main_menu_keyboard(user_id),
+                )
+                context.user_data.pop("drop_learning_menu", None)
+                return
+
+            user = update.effective_user
+            if not user or not database.user_has_phone(user.id):
+                context.user_data["pending_drop_learning_id"] = item_id
+                await update.message.reply_text(
+                    "جهت ثبت نام در ربات دکمه رو بزنید",
+                    reply_markup=register_phone_keyboard(),
+                )
+                return
+
+            await send_drop_learning_content(update, context, item_id)
+            return
+
+        # Handle case studies selection
+        case_studies_map = context.user_data.get("case_studies_menu")
+        if case_studies_map and text in case_studies_map:
+            item_id = case_studies_map[text]
+            item = database.get_case_study(item_id)
+            if not item:
+                await update.message.reply_text(
+                    "این کیس استادی دیگر در دسترس نیست.",
+                    reply_markup=build_main_menu_keyboard(user_id),
+                )
+                context.user_data.pop("case_studies_menu", None)
+                return
+
+            user = update.effective_user
+            if not user or not database.user_has_phone(user.id):
+                context.user_data["pending_case_study_id"] = item_id
+                await update.message.reply_text(
+                    "جهت ثبت نام در ربات دکمه رو بزنید",
+                    reply_markup=register_phone_keyboard(),
+                )
+                return
+
+            await send_case_study_content(update, context, item_id)
+            return
+
         if text == "بازگشت":
             if context.user_data.pop("webinar_menu", None):
+                await update.message.reply_text(
+                    "بازگشت به منوی اصلی.",
+                    reply_markup=build_main_menu_keyboard(user_id),
+                )
+                return
+            if context.user_data.pop("drop_learning_menu", None):
+                await update.message.reply_text(
+                    "بازگشت به منوی اصلی.",
+                    reply_markup=build_main_menu_keyboard(user_id),
+                )
+                return
+            if context.user_data.pop("case_studies_menu", None):
                 await update.message.reply_text(
                     "بازگشت به منوی اصلی.",
                     reply_markup=build_main_menu_keyboard(user_id),
@@ -259,20 +386,6 @@ async def send_webinar_content(
     else:
         await update.message.reply_text(webinar["description"])
 
-    # Send registration link
-    keyboard = InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton(
-                    "ثبت‌نام در وبینار", url=webinar["registration_link"]
-                )
-            ]
-        ]
-    )
-    await update.message.reply_text(
-        "لینک ثبت‌نام:", reply_markup=keyboard
-    )
-
     # Send content items
     content_items = list(database.get_webinar_content(webinar_id))
     for item in content_items:
@@ -312,6 +425,128 @@ async def send_webinar_content(
             continue
 
 
+async def send_drop_learning_content(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, item_id: int
+) -> None:
+    """Send drop learning content to user."""
+    item = database.get_drop_learning(item_id)
+    if not item:
+        await update.message.reply_text("این دراپ لرنینگ دیگر در دسترس نیست.")
+        return
+
+    # Send cover photo if available
+    if item.get("cover_photo_file_id"):
+        try:
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=item["cover_photo_file_id"],
+                caption=item["description"],
+            )
+        except Exception:
+            await update.message.reply_text(item["description"])
+    else:
+        await update.message.reply_text(item["description"])
+
+    # Send content items
+    content_items = list(database.get_drop_learning_content(item_id))
+    for content_item in content_items:
+        try:
+            if content_item["file_type"] == "video":
+                await context.bot.send_video(
+                    chat_id=update.effective_chat.id,
+                    video=content_item["file_id"],
+                )
+            elif content_item["file_type"] == "voice":
+                await context.bot.send_voice(
+                    chat_id=update.effective_chat.id,
+                    voice=content_item["file_id"],
+                )
+            elif content_item["file_type"] == "audio":
+                await context.bot.send_audio(
+                    chat_id=update.effective_chat.id,
+                    audio=content_item["file_id"],
+                )
+            elif content_item["file_type"] == "document":
+                await context.bot.send_document(
+                    chat_id=update.effective_chat.id,
+                    document=content_item["file_id"],
+                )
+            elif content_item["file_type"] == "photo":
+                await context.bot.send_photo(
+                    chat_id=update.effective_chat.id,
+                    photo=content_item["file_id"],
+                )
+            elif content_item["file_type"] == "video_note":
+                await context.bot.send_video_note(
+                    chat_id=update.effective_chat.id,
+                    video_note=content_item["file_id"],
+                )
+        except Exception as e:
+            logging.warning(f"Failed to send drop learning content {content_item['id']}: {e}")
+            continue
+
+
+async def send_case_study_content(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, item_id: int
+) -> None:
+    """Send case study content to user."""
+    item = database.get_case_study(item_id)
+    if not item:
+        await update.message.reply_text("این کیس استادی دیگر در دسترس نیست.")
+        return
+
+    # Send cover photo if available
+    if item.get("cover_photo_file_id"):
+        try:
+            await context.bot.send_photo(
+                chat_id=update.effective_chat.id,
+                photo=item["cover_photo_file_id"],
+                caption=item["description"],
+            )
+        except Exception:
+            await update.message.reply_text(item["description"])
+    else:
+        await update.message.reply_text(item["description"])
+
+    # Send content items
+    content_items = list(database.get_case_study_content(item_id))
+    for content_item in content_items:
+        try:
+            if content_item["file_type"] == "video":
+                await context.bot.send_video(
+                    chat_id=update.effective_chat.id,
+                    video=content_item["file_id"],
+                )
+            elif content_item["file_type"] == "voice":
+                await context.bot.send_voice(
+                    chat_id=update.effective_chat.id,
+                    voice=content_item["file_id"],
+                )
+            elif content_item["file_type"] == "audio":
+                await context.bot.send_audio(
+                    chat_id=update.effective_chat.id,
+                    audio=content_item["file_id"],
+                )
+            elif content_item["file_type"] == "document":
+                await context.bot.send_document(
+                    chat_id=update.effective_chat.id,
+                    document=content_item["file_id"],
+                )
+            elif content_item["file_type"] == "photo":
+                await context.bot.send_photo(
+                    chat_id=update.effective_chat.id,
+                    photo=content_item["file_id"],
+                )
+            elif content_item["file_type"] == "video_note":
+                await context.bot.send_video_note(
+                    chat_id=update.effective_chat.id,
+                    video_note=content_item["file_id"],
+                )
+        except Exception as e:
+            logging.warning(f"Failed to send case study content {content_item['id']}: {e}")
+            continue
+
+
 async def handle_register_phone_callback(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -330,12 +565,23 @@ async def handle_register_phone_callback(
 
     # Check if user already has phone
     if database.user_has_phone(user.id):
-        # User already has phone, show webinar if pending
+        # User already has phone, show pending content if any
         pending_webinar_id = context.user_data.get("pending_webinar_id")
+        pending_drop_learning_id = context.user_data.get("pending_drop_learning_id")
+        pending_case_study_id = context.user_data.get("pending_case_study_id")
+        
         if pending_webinar_id:
             context.user_data.pop("pending_webinar_id", None)
             await query.edit_message_text("شماره شما قبلاً ثبت شده است.")
             await send_webinar_content(update, context, pending_webinar_id)
+        elif pending_drop_learning_id:
+            context.user_data.pop("pending_drop_learning_id", None)
+            await query.edit_message_text("شماره شما قبلاً ثبت شده است.")
+            await send_drop_learning_content(update, context, pending_drop_learning_id)
+        elif pending_case_study_id:
+            context.user_data.pop("pending_case_study_id", None)
+            await query.edit_message_text("شماره شما قبلاً ثبت شده است.")
+            await send_case_study_content(update, context, pending_case_study_id)
         else:
             await query.edit_message_text("شماره شما قبلاً ثبت شده است.")
         return
@@ -387,6 +633,8 @@ __all__ = [
     "handle_register_phone_callback",
     "send_main_menu",
     "send_webinar_content",
+    "send_drop_learning_content",
+    "send_case_study_content",
     "start",
 ]
 

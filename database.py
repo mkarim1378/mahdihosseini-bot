@@ -36,7 +36,6 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
                 description TEXT NOT NULL,
-                registration_link TEXT NOT NULL,
                 cover_photo_file_id TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -52,6 +51,52 @@ def init_db() -> None:
                 file_type TEXT NOT NULL,
                 content_order INTEGER DEFAULT 0,
                 FOREIGN KEY (webinar_id) REFERENCES webinars (id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS drop_learning (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL,
+                cover_photo_file_id TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS drop_learning_content (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                drop_learning_id INTEGER NOT NULL,
+                file_id TEXT NOT NULL,
+                file_type TEXT NOT NULL,
+                content_order INTEGER DEFAULT 0,
+                FOREIGN KEY (drop_learning_id) REFERENCES drop_learning (id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS case_studies (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL,
+                cover_photo_file_id TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS case_studies_content (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                case_study_id INTEGER NOT NULL,
+                file_id TEXT NOT NULL,
+                file_type TEXT NOT NULL,
+                content_order INTEGER DEFAULT 0,
+                FOREIGN KEY (case_study_id) REFERENCES case_studies (id) ON DELETE CASCADE
             )
             """
         )
@@ -136,6 +181,34 @@ def _ensure_webinars_schema(conn: sqlite3.Connection) -> None:
             ADD COLUMN cover_photo_file_id TEXT
             """
         )
+    # Remove registration_link if it exists (migration)
+    if "registration_link" in columns:
+        # SQLite doesn't support DROP COLUMN directly, so we'll recreate the table
+        # First, check if cover_photo_file_id exists, if not add it
+        if "cover_photo_file_id" not in columns:
+            conn.execute("""
+                ALTER TABLE webinars
+                ADD COLUMN cover_photo_file_id TEXT
+            """)
+        # Now recreate table without registration_link
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS webinars_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL,
+                cover_photo_file_id TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            INSERT INTO webinars_new (id, title, description, cover_photo_file_id, created_at)
+            SELECT id, title, description, 
+                   COALESCE(cover_photo_file_id, '') as cover_photo_file_id,
+                   created_at
+            FROM webinars
+        """)
+        conn.execute("DROP TABLE webinars")
+        conn.execute("ALTER TABLE webinars_new RENAME TO webinars")
 
 
 def upsert_user(
@@ -352,7 +425,7 @@ def list_webinars() -> Iterable[Dict[str, str]]:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
             """
-            SELECT id, title, description, registration_link, cover_photo_file_id, created_at
+            SELECT id, title, description, cover_photo_file_id, created_at
             FROM webinars
             ORDER BY created_at DESC, id DESC
             """
@@ -361,7 +434,6 @@ def list_webinars() -> Iterable[Dict[str, str]]:
             webinar_id,
             title,
             description,
-            registration_link,
             cover_photo_file_id,
             created_at,
         ) in cursor.fetchall():
@@ -369,7 +441,6 @@ def list_webinars() -> Iterable[Dict[str, str]]:
                 "id": webinar_id,
                 "title": title,
                 "description": description,
-                "registration_link": registration_link,
                 "cover_photo_file_id": cover_photo_file_id or "",
                 "created_at": created_at,
             }
@@ -379,7 +450,7 @@ def get_webinar(webinar_id: int) -> Optional[Dict[str, str]]:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
             """
-            SELECT id, title, description, registration_link, cover_photo_file_id, created_at
+            SELECT id, title, description, cover_photo_file_id, created_at
             FROM webinars
             WHERE id = ?
             """,
@@ -392,25 +463,23 @@ def get_webinar(webinar_id: int) -> Optional[Dict[str, str]]:
         "id": row[0],
         "title": row[1],
         "description": row[2],
-        "registration_link": row[3],
-        "cover_photo_file_id": row[4] or "",
-        "created_at": row[5],
+        "cover_photo_file_id": row[3] or "",
+        "created_at": row[4],
     }
 
 
 def create_webinar(
     title: str,
     description: str,
-    registration_link: str,
     cover_photo_file_id: Optional[str] = None,
 ) -> int:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
             """
-            INSERT INTO webinars (title, description, registration_link, cover_photo_file_id)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO webinars (title, description, cover_photo_file_id)
+            VALUES (?, ?, ?)
             """,
-            (title, description, registration_link, cover_photo_file_id),
+            (title, description, cover_photo_file_id),
         )
         return cursor.lastrowid
 
@@ -420,7 +489,6 @@ def update_webinar(
     *,
     title: Optional[str] = None,
     description: Optional[str] = None,
-    registration_link: Optional[str] = None,
     cover_photo_file_id: Optional[str] = None,
 ) -> bool:
     fields = []
@@ -431,9 +499,6 @@ def update_webinar(
     if description is not None:
         fields.append("description = ?")
         params.append(description)
-    if registration_link is not None:
-        fields.append("registration_link = ?")
-        params.append(registration_link)
     if cover_photo_file_id is not None:
         fields.append("cover_photo_file_id = ?")
         params.append(cover_photo_file_id)
@@ -513,4 +578,282 @@ def clear_webinar_content(webinar_id: int) -> None:
             "DELETE FROM webinar_content WHERE webinar_id = ?",
             (webinar_id,),
         )
+
+
+# Drop Learning functions
+def list_drop_learning() -> Iterable[Dict[str, str]]:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            """
+            SELECT id, title, description, cover_photo_file_id, created_at
+            FROM drop_learning
+            ORDER BY created_at DESC, id DESC
+            """
+        )
+        for (
+            item_id,
+            title,
+            description,
+            cover_photo_file_id,
+            created_at,
+        ) in cursor.fetchall():
+            yield {
+                "id": item_id,
+                "title": title,
+                "description": description,
+                "cover_photo_file_id": cover_photo_file_id or "",
+                "created_at": created_at,
+            }
+
+
+def get_drop_learning(item_id: int) -> Optional[Dict[str, str]]:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            """
+            SELECT id, title, description, cover_photo_file_id, created_at
+            FROM drop_learning
+            WHERE id = ?
+            """,
+            (item_id,),
+        )
+        row = cursor.fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row[0],
+        "title": row[1],
+        "description": row[2],
+        "cover_photo_file_id": row[3] or "",
+        "created_at": row[4],
+    }
+
+
+def create_drop_learning(
+    title: str,
+    description: str,
+    cover_photo_file_id: Optional[str] = None,
+) -> int:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO drop_learning (title, description, cover_photo_file_id)
+            VALUES (?, ?, ?)
+            """,
+            (title, description, cover_photo_file_id),
+        )
+        return cursor.lastrowid
+
+
+def update_drop_learning(
+    item_id: int,
+    *,
+    title: Optional[str] = None,
+    description: Optional[str] = None,
+    cover_photo_file_id: Optional[str] = None,
+) -> bool:
+    fields = []
+    params = []
+    if title is not None:
+        fields.append("title = ?")
+        params.append(title)
+    if description is not None:
+        fields.append("description = ?")
+        params.append(description)
+    if cover_photo_file_id is not None:
+        fields.append("cover_photo_file_id = ?")
+        params.append(cover_photo_file_id)
+    if not fields:
+        return False
+    params.append(item_id)
+
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            f"""
+            UPDATE drop_learning
+            SET {", ".join(fields)}
+            WHERE id = ?
+            """,
+            tuple(params),
+        )
+        return cursor.rowcount > 0
+
+
+def delete_drop_learning(item_id: int) -> bool:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            "DELETE FROM drop_learning WHERE id = ?",
+            (item_id,),
+        )
+        return cursor.rowcount > 0
+
+
+def add_drop_learning_content(item_id: int, file_id: str, file_type: str, content_order: int = 0) -> int:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO drop_learning_content (drop_learning_id, file_id, file_type, content_order)
+            VALUES (?, ?, ?, ?)
+            """,
+            (item_id, file_id, file_type, content_order),
+        )
+        return cursor.lastrowid
+
+
+def get_drop_learning_content(item_id: int) -> Iterable[Dict[str, str]]:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            """
+            SELECT id, file_id, file_type, content_order
+            FROM drop_learning_content
+            WHERE drop_learning_id = ?
+            ORDER BY content_order ASC, id ASC
+            """,
+            (item_id,),
+        )
+        for content_id, file_id, file_type, content_order in cursor.fetchall():
+            yield {
+                "id": content_id,
+                "file_id": file_id,
+                "file_type": file_type,
+                "content_order": content_order,
+            }
+
+
+# Case Studies functions
+def list_case_studies() -> Iterable[Dict[str, str]]:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            """
+            SELECT id, title, description, cover_photo_file_id, created_at
+            FROM case_studies
+            ORDER BY created_at DESC, id DESC
+            """
+        )
+        for (
+            item_id,
+            title,
+            description,
+            cover_photo_file_id,
+            created_at,
+        ) in cursor.fetchall():
+            yield {
+                "id": item_id,
+                "title": title,
+                "description": description,
+                "cover_photo_file_id": cover_photo_file_id or "",
+                "created_at": created_at,
+            }
+
+
+def get_case_study(item_id: int) -> Optional[Dict[str, str]]:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            """
+            SELECT id, title, description, cover_photo_file_id, created_at
+            FROM case_studies
+            WHERE id = ?
+            """,
+            (item_id,),
+        )
+        row = cursor.fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row[0],
+        "title": row[1],
+        "description": row[2],
+        "cover_photo_file_id": row[3] or "",
+        "created_at": row[4],
+    }
+
+
+def create_case_study(
+    title: str,
+    description: str,
+    cover_photo_file_id: Optional[str] = None,
+) -> int:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO case_studies (title, description, cover_photo_file_id)
+            VALUES (?, ?, ?)
+            """,
+            (title, description, cover_photo_file_id),
+        )
+        return cursor.lastrowid
+
+
+def update_case_study(
+    item_id: int,
+    *,
+    title: Optional[str] = None,
+    description: Optional[str] = None,
+    cover_photo_file_id: Optional[str] = None,
+) -> bool:
+    fields = []
+    params = []
+    if title is not None:
+        fields.append("title = ?")
+        params.append(title)
+    if description is not None:
+        fields.append("description = ?")
+        params.append(description)
+    if cover_photo_file_id is not None:
+        fields.append("cover_photo_file_id = ?")
+        params.append(cover_photo_file_id)
+    if not fields:
+        return False
+    params.append(item_id)
+
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            f"""
+            UPDATE case_studies
+            SET {", ".join(fields)}
+            WHERE id = ?
+            """,
+            tuple(params),
+        )
+        return cursor.rowcount > 0
+
+
+def delete_case_study(item_id: int) -> bool:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            "DELETE FROM case_studies WHERE id = ?",
+            (item_id,),
+        )
+        return cursor.rowcount > 0
+
+
+def add_case_study_content(item_id: int, file_id: str, file_type: str, content_order: int = 0) -> int:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO case_studies_content (case_study_id, file_id, file_type, content_order)
+            VALUES (?, ?, ?, ?)
+            """,
+            (item_id, file_id, file_type, content_order),
+        )
+        return cursor.lastrowid
+
+
+def get_case_study_content(item_id: int) -> Iterable[Dict[str, str]]:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            """
+            SELECT id, file_id, file_type, content_order
+            FROM case_studies_content
+            WHERE case_study_id = ?
+            ORDER BY content_order ASC, id ASC
+            """,
+            (item_id,),
+        )
+        for content_id, file_id, file_type, content_order in cursor.fetchall():
+            yield {
+                "id": content_id,
+                "file_id": file_id,
+                "file_type": file_type,
+                "content_order": content_order,
+            }
 

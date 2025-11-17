@@ -25,14 +25,26 @@ from ..constants import (
     ADMIN_PANEL_REMOVE_PHONE,
     ADMIN_PANEL_SETTINGS,
     ADMIN_PANEL_WEBINAR_ADD_DESCRIPTION,
-    ADMIN_PANEL_WEBINAR_ADD_LINK,
     ADMIN_PANEL_WEBINAR_ADD_TITLE,
     ADMIN_PANEL_WEBINAR_ADD_COVER,
     ADMIN_PANEL_WEBINAR_ADD_CONTENT,
     ADMIN_PANEL_WEBINAR_EDIT_DESCRIPTION,
-    ADMIN_PANEL_WEBINAR_EDIT_LINK,
     ADMIN_PANEL_WEBINAR_EDIT_TITLE,
     ADMIN_PANEL_WEBINAR_MENU,
+    ADMIN_PANEL_DROP_LEARNING_MENU,
+    ADMIN_PANEL_DROP_LEARNING_ADD_TITLE,
+    ADMIN_PANEL_DROP_LEARNING_ADD_DESCRIPTION,
+    ADMIN_PANEL_DROP_LEARNING_ADD_COVER,
+    ADMIN_PANEL_DROP_LEARNING_ADD_CONTENT,
+    ADMIN_PANEL_DROP_LEARNING_EDIT_TITLE,
+    ADMIN_PANEL_DROP_LEARNING_EDIT_DESCRIPTION,
+    ADMIN_PANEL_CASE_STUDIES_MENU,
+    ADMIN_PANEL_CASE_STUDIES_ADD_TITLE,
+    ADMIN_PANEL_CASE_STUDIES_ADD_DESCRIPTION,
+    ADMIN_PANEL_CASE_STUDIES_ADD_COVER,
+    ADMIN_PANEL_CASE_STUDIES_ADD_CONTENT,
+    ADMIN_PANEL_CASE_STUDIES_EDIT_TITLE,
+    ADMIN_PANEL_CASE_STUDIES_EDIT_DESCRIPTION,
     BROADCAST_OPTIONS,
     TEMP_ADMIN_IDS,
 )
@@ -130,6 +142,14 @@ async def admin_panel_main_message(
     if text == "مدیریت وبینارها 🎥":
         await show_webinar_menu(update.effective_chat.id, context)
         return ADMIN_PANEL_WEBINAR_MENU
+
+    if text == "مدیریت دراپ لرنینگ 📚":
+        await show_drop_learning_menu(update.effective_chat.id, context)
+        return ADMIN_PANEL_DROP_LEARNING_MENU
+
+    if text == "مدیریت کیس استادی 📋":
+        await show_case_studies_menu(update.effective_chat.id, context)
+        return ADMIN_PANEL_CASE_STUDIES_MENU
 
     if text == "بازگشت به ربات ⬅️":
         await update.message.reply_text("بازگشت به ربات.")
@@ -501,16 +521,12 @@ async def show_selected_webinar(
     text_parts.append(f"عنوان: {webinar['title'] or 'وبینار بدون عنوان'}")
     text_parts.append("")
     text_parts.append(webinar["description"])
-    text_parts.append("")
-    text_parts.append("لینک ثبت‌نام:")
-    text_parts.append(webinar["registration_link"])
     text = "\n".join(text_parts)
 
     keyboard = InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("ویرایش عنوان 🏷️", callback_data="webinar:edit_title")],
             [InlineKeyboardButton("ویرایش توضیحات 📝", callback_data="webinar:edit_desc")],
-            [InlineKeyboardButton("ویرایش لینک 🔗", callback_data="webinar:edit_link")],
             [InlineKeyboardButton("حذف وبینار 🗑️", callback_data="webinar:delete")],
             [InlineKeyboardButton("بازگشت 🔙", callback_data="webinar:menu")],
         ]
@@ -603,18 +619,6 @@ async def admin_panel_webinar_callback(
         )
         return ADMIN_PANEL_WEBINAR_EDIT_DESCRIPTION
 
-    if data == "webinar:edit_link":
-        webinar_id = context.user_data.get("webinar_selected")
-        if not webinar_id:
-            await query.answer("ابتدا وبینار را انتخاب کنید.", show_alert=True)
-            await show_webinar_menu(query, context)
-            return ADMIN_PANEL_WEBINAR_MENU
-        context.user_data["webinar_flow"] = {"webinar_id": webinar_id}
-        await query.edit_message_text(
-            "لینک جدید ثبت‌نام را ارسال کنید.",
-            reply_markup=WEBINAR_CANCEL_MARKUP,
-        )
-        return ADMIN_PANEL_WEBINAR_EDIT_LINK
 
     if data == "webinar:delete":
         webinar_id = context.user_data.get("webinar_selected")
@@ -636,17 +640,16 @@ async def admin_panel_webinar_callback(
         flow = context.user_data.get("webinar_flow") or {}
         title = flow.get("title")
         description = flow.get("description")
-        registration_link = flow.get("registration_link")
         cover_photo_file_id = flow.get("cover_photo_file_id")
         content_items = flow.get("content_items", [])
         
-        if not title or not description or not registration_link:
+        if not title or not description:
             await query.answer("اطلاعات وبینار ناقص است.", show_alert=True)
             return ADMIN_PANEL_WEBINAR_ADD_CONTENT
         
         # Create webinar
         webinar_id = database.create_webinar(
-            title, description, registration_link, cover_photo_file_id
+            title, description, cover_photo_file_id
         )
         
         # Add content items
@@ -663,6 +666,272 @@ async def admin_panel_webinar_callback(
     await query.answer("گزینه نامعتبر است.", show_alert=True)
     await show_webinar_menu(query, context)
     return ADMIN_PANEL_WEBINAR_MENU
+
+
+async def admin_panel_drop_learning_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    query = update.callback_query
+    await query.answer()
+
+    if not await ensure_private_chat(update, context):
+        return ConversationHandler.END
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
+    user = update.effective_user
+    if not user or not is_admin_user(user.id):
+        await query.edit_message_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    data = query.data
+
+    if data == "drop_learning:back":
+        context.user_data.pop("drop_learning_flow", None)
+        context.user_data.pop("drop_learning_selected", None)
+        await query.edit_message_text("بازگشت به پنل ادمین.")
+        await query.message.reply_text(
+            "به پنل ادمین خوش آمدید. یکی از گزینه‌ها را انتخاب کنید:",
+            reply_markup=admin_main_reply_keyboard(),
+        )
+        return ADMIN_PANEL_MAIN
+
+    if data == "drop_learning:menu":
+        context.user_data.pop("drop_learning_flow", None)
+        await show_drop_learning_menu(query, context)
+        return ADMIN_PANEL_DROP_LEARNING_MENU
+
+    if data == "drop_learning:add":
+        context.user_data["drop_learning_flow"] = {"content_items": []}
+        await query.edit_message_text(
+            "عنوان دراپ لرنینگ را ارسال کنید.",
+            reply_markup=DROP_LEARNING_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_DROP_LEARNING_ADD_TITLE
+
+    if data.startswith("drop_learning:select:"):
+        try:
+            item_id = int(data.split(":", maxsplit=2)[2])
+        except (IndexError, ValueError):
+            await query.answer("گزینه نامعتبر است.", show_alert=True)
+            await show_drop_learning_menu(query, context)
+            return ADMIN_PANEL_DROP_LEARNING_MENU
+
+        item = database.get_drop_learning(item_id)
+        if item is None:
+            await query.answer("این دراپ لرنینگ وجود ندارد.", show_alert=True)
+            await show_drop_learning_menu(query, context)
+            return ADMIN_PANEL_DROP_LEARNING_MENU
+
+        context.user_data["drop_learning_selected"] = item_id
+        await show_selected_drop_learning(query, item)
+        return ADMIN_PANEL_DROP_LEARNING_MENU
+
+    if data == "drop_learning:edit_title":
+        item_id = context.user_data.get("drop_learning_selected")
+        if not item_id:
+            await query.answer("ابتدا دراپ لرنینگ را انتخاب کنید.", show_alert=True)
+            await show_drop_learning_menu(query, context)
+            return ADMIN_PANEL_DROP_LEARNING_MENU
+        context.user_data["drop_learning_flow"] = {"item_id": item_id}
+        await query.edit_message_text(
+            "عنوان جدید دراپ لرنینگ را ارسال کنید.",
+            reply_markup=DROP_LEARNING_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_DROP_LEARNING_EDIT_TITLE
+
+    if data == "drop_learning:edit_desc":
+        item_id = context.user_data.get("drop_learning_selected")
+        if not item_id:
+            await query.answer("ابتدا دراپ لرنینگ را انتخاب کنید.", show_alert=True)
+            await show_drop_learning_menu(query, context)
+            return ADMIN_PANEL_DROP_LEARNING_MENU
+        context.user_data["drop_learning_flow"] = {"item_id": item_id}
+        await query.edit_message_text(
+            "توضیحات جدید دراپ لرنینگ را ارسال کنید.",
+            reply_markup=DROP_LEARNING_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_DROP_LEARNING_EDIT_DESCRIPTION
+
+    if data == "drop_learning:delete":
+        item_id = context.user_data.get("drop_learning_selected")
+        if not item_id:
+            await query.answer("ابتدا دراپ لرنینگ را انتخاب کنید.", show_alert=True)
+            await show_drop_learning_menu(query, context)
+            return ADMIN_PANEL_DROP_LEARNING_MENU
+        context.user_data.pop("drop_learning_flow", None)
+        if database.delete_drop_learning(item_id):
+            context.user_data.pop("drop_learning_selected", None)
+            await show_drop_learning_menu(query, context, status="دراپ لرنینگ حذف شد ✅")
+        else:
+            await show_drop_learning_menu(
+                query, context, status="حذف دراپ لرنینگ با خطا مواجه شد."
+            )
+        return ADMIN_PANEL_DROP_LEARNING_MENU
+
+    if data == "drop_learning:finish":
+        flow = context.user_data.get("drop_learning_flow") or {}
+        title = flow.get("title")
+        description = flow.get("description")
+        cover_photo_file_id = flow.get("cover_photo_file_id")
+        content_items = flow.get("content_items", [])
+        
+        if not title or not description:
+            await query.answer("اطلاعات دراپ لرنینگ ناقص است.", show_alert=True)
+            return ADMIN_PANEL_DROP_LEARNING_ADD_CONTENT
+        
+        # Create drop learning
+        item_id = database.create_drop_learning(
+            title, description, cover_photo_file_id
+        )
+        
+        # Add content items
+        for item in content_items:
+            database.add_drop_learning_content(
+                item_id, item["file_id"], item["file_type"], item["order"]
+            )
+        
+        context.user_data.pop("drop_learning_flow", None)
+        await query.answer("دراپ لرنینگ با موفقیت ثبت شد ✅", show_alert=True)
+        await show_drop_learning_menu(query, context, status="دراپ لرنینگ جدید ثبت شد ✅")
+        return ADMIN_PANEL_DROP_LEARNING_MENU
+
+    await query.answer("گزینه نامعتبر است.", show_alert=True)
+    await show_drop_learning_menu(query, context)
+    return ADMIN_PANEL_DROP_LEARNING_MENU
+
+
+async def admin_panel_case_studies_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    query = update.callback_query
+    await query.answer()
+
+    if not await ensure_private_chat(update, context):
+        return ConversationHandler.END
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
+    user = update.effective_user
+    if not user or not is_admin_user(user.id):
+        await query.edit_message_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    data = query.data
+
+    if data == "case_studies:back":
+        context.user_data.pop("case_studies_flow", None)
+        context.user_data.pop("case_studies_selected", None)
+        await query.edit_message_text("بازگشت به پنل ادمین.")
+        await query.message.reply_text(
+            "به پنل ادمین خوش آمدید. یکی از گزینه‌ها را انتخاب کنید:",
+            reply_markup=admin_main_reply_keyboard(),
+        )
+        return ADMIN_PANEL_MAIN
+
+    if data == "case_studies:menu":
+        context.user_data.pop("case_studies_flow", None)
+        await show_case_studies_menu(query, context)
+        return ADMIN_PANEL_CASE_STUDIES_MENU
+
+    if data == "case_studies:add":
+        context.user_data["case_studies_flow"] = {"content_items": []}
+        await query.edit_message_text(
+            "عنوان کیس استادی را ارسال کنید.",
+            reply_markup=CASE_STUDIES_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_CASE_STUDIES_ADD_TITLE
+
+    if data.startswith("case_studies:select:"):
+        try:
+            item_id = int(data.split(":", maxsplit=2)[2])
+        except (IndexError, ValueError):
+            await query.answer("گزینه نامعتبر است.", show_alert=True)
+            await show_case_studies_menu(query, context)
+            return ADMIN_PANEL_CASE_STUDIES_MENU
+
+        item = database.get_case_study(item_id)
+        if item is None:
+            await query.answer("این کیس استادی وجود ندارد.", show_alert=True)
+            await show_case_studies_menu(query, context)
+            return ADMIN_PANEL_CASE_STUDIES_MENU
+
+        context.user_data["case_studies_selected"] = item_id
+        await show_selected_case_study(query, item)
+        return ADMIN_PANEL_CASE_STUDIES_MENU
+
+    if data == "case_studies:edit_title":
+        item_id = context.user_data.get("case_studies_selected")
+        if not item_id:
+            await query.answer("ابتدا کیس استادی را انتخاب کنید.", show_alert=True)
+            await show_case_studies_menu(query, context)
+            return ADMIN_PANEL_CASE_STUDIES_MENU
+        context.user_data["case_studies_flow"] = {"item_id": item_id}
+        await query.edit_message_text(
+            "عنوان جدید کیس استادی را ارسال کنید.",
+            reply_markup=CASE_STUDIES_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_CASE_STUDIES_EDIT_TITLE
+
+    if data == "case_studies:edit_desc":
+        item_id = context.user_data.get("case_studies_selected")
+        if not item_id:
+            await query.answer("ابتدا کیس استادی را انتخاب کنید.", show_alert=True)
+            await show_case_studies_menu(query, context)
+            return ADMIN_PANEL_CASE_STUDIES_MENU
+        context.user_data["case_studies_flow"] = {"item_id": item_id}
+        await query.edit_message_text(
+            "توضیحات جدید کیس استادی را ارسال کنید.",
+            reply_markup=CASE_STUDIES_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_CASE_STUDIES_EDIT_DESCRIPTION
+
+    if data == "case_studies:delete":
+        item_id = context.user_data.get("case_studies_selected")
+        if not item_id:
+            await query.answer("ابتدا کیس استادی را انتخاب کنید.", show_alert=True)
+            await show_case_studies_menu(query, context)
+            return ADMIN_PANEL_CASE_STUDIES_MENU
+        context.user_data.pop("case_studies_flow", None)
+        if database.delete_case_study(item_id):
+            context.user_data.pop("case_studies_selected", None)
+            await show_case_studies_menu(query, context, status="کیس استادی حذف شد ✅")
+        else:
+            await show_case_studies_menu(
+                query, context, status="حذف کیس استادی با خطا مواجه شد."
+            )
+        return ADMIN_PANEL_CASE_STUDIES_MENU
+
+    if data == "case_studies:finish":
+        flow = context.user_data.get("case_studies_flow") or {}
+        title = flow.get("title")
+        description = flow.get("description")
+        cover_photo_file_id = flow.get("cover_photo_file_id")
+        content_items = flow.get("content_items", [])
+        
+        if not title or not description:
+            await query.answer("اطلاعات کیس استادی ناقص است.", show_alert=True)
+            return ADMIN_PANEL_CASE_STUDIES_ADD_CONTENT
+        
+        # Create case study
+        item_id = database.create_case_study(
+            title, description, cover_photo_file_id
+        )
+        
+        # Add content items
+        for item in content_items:
+            database.add_case_study_content(
+                item_id, item["file_id"], item["file_type"], item["order"]
+            )
+        
+        context.user_data.pop("case_studies_flow", None)
+        await query.answer("کیس استادی با موفقیت ثبت شد ✅", show_alert=True)
+        await show_case_studies_menu(query, context, status="کیس استادی جدید ثبت شد ✅")
+        return ADMIN_PANEL_CASE_STUDIES_MENU
+
+    await query.answer("گزینه نامعتبر است.", show_alert=True)
+    await show_case_studies_menu(query, context)
+    return ADMIN_PANEL_CASE_STUDIES_MENU
 
 
 async def admin_webinar_add_description(
@@ -698,50 +967,12 @@ async def admin_webinar_add_description(
     flow["description"] = description
     context.user_data["webinar_flow"] = flow
     await update.message.reply_text(
-        "لینک ثبت‌نام وبینار را ارسال کن (با http:// یا https://).",
-        reply_markup=WEBINAR_CANCEL_MARKUP,
-    )
-    return ADMIN_PANEL_WEBINAR_ADD_LINK
-
-
-async def admin_webinar_add_link(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    if not await ensure_channel_membership(update, context):
-        return ConversationHandler.END
-
-    if not await ensure_registered_user(update, context):
-        return ConversationHandler.END
-
-    if not is_admin_user(update.effective_user.id):
-        await update.message.reply_text("دسترسی شما قطع شده است.")
-        return ConversationHandler.END
-
-    link = (update.message.text or "").strip()
-    if not _looks_like_url(link):
-        await update.message.reply_text(
-            "لینک باید با http:// یا https:// شروع شود. لطفاً دوباره ارسال کن.",
-            reply_markup=WEBINAR_CANCEL_MARKUP,
-        )
-        return ADMIN_PANEL_WEBINAR_ADD_LINK
-
-    flow = context.user_data.get("webinar_flow") or {}
-    title = flow.get("title")
-    description = flow.get("description")
-    if not title or not description:
-        await update.message.reply_text(
-            "اطلاعات وبینار ناقص است. لطفاً دوباره تلاش کن.",
-            reply_markup=WEBINAR_CANCEL_MARKUP,
-        )
-        return ADMIN_PANEL_WEBINAR_ADD_LINK
-
-    flow["registration_link"] = link
-    context.user_data["webinar_flow"] = flow
-    await update.message.reply_text(
         "عکس کاور وبینار را ارسال کنید (یا /skip برای رد کردن).",
         reply_markup=WEBINAR_CANCEL_MARKUP,
     )
     return ADMIN_PANEL_WEBINAR_ADD_COVER
+
+
 
 
 async def admin_webinar_edit_description(
@@ -774,40 +1005,6 @@ async def admin_webinar_edit_description(
     database.update_webinar(webinar_id, description=description)
     context.user_data.pop("webinar_flow", None)
     await update.message.reply_text("توضیحات وبینار به‌روزرسانی شد ✅")
-    await show_webinar_menu(update.effective_chat.id, context)
-    return ADMIN_PANEL_WEBINAR_MENU
-
-
-async def admin_webinar_edit_link(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    if not await ensure_channel_membership(update, context):
-        return ConversationHandler.END
-
-    if not await ensure_registered_user(update, context):
-        return ConversationHandler.END
-
-    if not is_admin_user(update.effective_user.id):
-        await update.message.reply_text("دسترسی شما قطع شده است.")
-        return ConversationHandler.END
-
-    webinar_id = context.user_data.get("webinar_selected")
-    if not webinar_id:
-        await update.message.reply_text("ابتدا وبینار را از فهرست انتخاب کن.")
-        await show_webinar_menu(update.effective_chat.id, context)
-        return ADMIN_PANEL_WEBINAR_MENU
-
-    link = (update.message.text or "").strip()
-    if not _looks_like_url(link):
-        await update.message.reply_text(
-            "لینک باید با http:// یا https:// شروع شود. دوباره تلاش کن.",
-            reply_markup=WEBINAR_CANCEL_MARKUP,
-        )
-        return ADMIN_PANEL_WEBINAR_EDIT_LINK
-
-    database.update_webinar(webinar_id, registration_link=link)
-    context.user_data.pop("webinar_flow", None)
-    await update.message.reply_text("لینک ثبت‌نام به‌روزرسانی شد ✅")
     await show_webinar_menu(update.effective_chat.id, context)
     return ADMIN_PANEL_WEBINAR_MENU
 
@@ -974,6 +1171,454 @@ async def admin_webinar_edit_title(
     await update.message.reply_text("عنوان وبینار به‌روزرسانی شد ✅")
     await show_webinar_menu(update.effective_chat.id, context)
     return ADMIN_PANEL_WEBINAR_MENU
+
+
+# Drop Learning message handlers
+async def admin_drop_learning_add_title(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+    if not await ensure_registered_user(update, context):
+        return ConversationHandler.END
+    if not is_admin_user(update.effective_user.id):
+        await update.message.reply_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    title = (update.message.text or "").strip()
+    if not title:
+        await update.message.reply_text(
+            "عنوان دراپ لرنینگ نمی‌تواند خالی باشد.",
+            reply_markup=DROP_LEARNING_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_DROP_LEARNING_ADD_TITLE
+
+    flow = context.user_data.get("drop_learning_flow") or {}
+    flow["title"] = title
+    context.user_data["drop_learning_flow"] = flow
+    await update.message.reply_text(
+        "توضیحات دراپ لرنینگ را ارسال کنید.",
+        reply_markup=DROP_LEARNING_CANCEL_MARKUP,
+    )
+    return ADMIN_PANEL_DROP_LEARNING_ADD_DESCRIPTION
+
+
+async def admin_drop_learning_add_description(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+    if not await ensure_registered_user(update, context):
+        return ConversationHandler.END
+    if not is_admin_user(update.effective_user.id):
+        await update.message.reply_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    flow = context.user_data.get("drop_learning_flow") or {}
+    title = flow.get("title")
+    if not title:
+        await update.message.reply_text(
+            "عنوان دراپ لرنینگ مشخص نیست.",
+            reply_markup=DROP_LEARNING_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_DROP_LEARNING_ADD_TITLE
+
+    description = (update.message.text or "").strip()
+    if not description:
+        await update.message.reply_text(
+            "توضیحات دراپ لرنینگ نمی‌تواند خالی باشد.",
+            reply_markup=DROP_LEARNING_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_DROP_LEARNING_ADD_DESCRIPTION
+
+    flow["description"] = description
+    context.user_data["drop_learning_flow"] = flow
+    await update.message.reply_text(
+        "عکس کاور دراپ لرنینگ را ارسال کنید (یا /skip برای رد کردن).",
+        reply_markup=DROP_LEARNING_CANCEL_MARKUP,
+    )
+    return ADMIN_PANEL_DROP_LEARNING_ADD_COVER
+
+
+async def admin_drop_learning_add_cover(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+    if not await ensure_registered_user(update, context):
+        return ConversationHandler.END
+    if not is_admin_user(update.effective_user.id):
+        await update.message.reply_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    flow = context.user_data.get("drop_learning_flow") or {}
+    
+    if update.message.text and update.message.text.strip() == "/skip":
+        flow["cover_photo_file_id"] = None
+    elif update.message.photo:
+        photo = update.message.photo[-1]
+        flow["cover_photo_file_id"] = photo.file_id
+    else:
+        await update.message.reply_text(
+            "لطفاً یک عکس ارسال کنید یا /skip را بزنید.",
+            reply_markup=DROP_LEARNING_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_DROP_LEARNING_ADD_COVER
+
+    context.user_data["drop_learning_flow"] = flow
+    await update.message.reply_text(
+        "محتوای دراپ لرنینگ را ارسال کنید (ویدیو، وویس، فایل و...).\n"
+        "می‌توانید چندین محتوا ارسال کنید.\n"
+        "بعد از اتمام، دکمه «پایان ✅» را بزنید.",
+        reply_markup=DROP_LEARNING_CONTENT_MARKUP,
+    )
+    return ADMIN_PANEL_DROP_LEARNING_ADD_CONTENT
+
+
+async def admin_drop_learning_add_content(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+    if not await ensure_registered_user(update, context):
+        return ConversationHandler.END
+    if not is_admin_user(update.effective_user.id):
+        await update.message.reply_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    flow = context.user_data.get("drop_learning_flow") or {}
+    content_items = flow.get("content_items", [])
+    
+    file_id = None
+    file_type = None
+    
+    if update.message.video:
+        file_id = update.message.video.file_id
+        file_type = "video"
+    elif update.message.voice:
+        file_id = update.message.voice.file_id
+        file_type = "voice"
+    elif update.message.audio:
+        file_id = update.message.audio.file_id
+        file_type = "audio"
+    elif update.message.document:
+        file_id = update.message.document.file_id
+        file_type = "document"
+    elif update.message.photo:
+        file_id = update.message.photo[-1].file_id
+        file_type = "photo"
+    elif update.message.video_note:
+        file_id = update.message.video_note.file_id
+        file_type = "video_note"
+    
+    if file_id and file_type:
+        content_items.append({
+            "file_id": file_id,
+            "file_type": file_type,
+            "order": len(content_items)
+        })
+        flow["content_items"] = content_items
+        context.user_data["drop_learning_flow"] = flow
+        await update.message.reply_text(
+            f"محتوای {len(content_items)} ثبت شد.\n"
+            "می‌توانید محتوای دیگری ارسال کنید یا دکمه «پایان ✅» را بزنید.",
+            reply_markup=DROP_LEARNING_CONTENT_MARKUP,
+        )
+    else:
+        await update.message.reply_text(
+            "لطفاً یک فایل (ویدیو، وویس، فایل و...) ارسال کنید.",
+            reply_markup=DROP_LEARNING_CONTENT_MARKUP,
+        )
+    
+    return ADMIN_PANEL_DROP_LEARNING_ADD_CONTENT
+
+
+async def admin_drop_learning_edit_description(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+    if not await ensure_registered_user(update, context):
+        return ConversationHandler.END
+    if not is_admin_user(update.effective_user.id):
+        await update.message.reply_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    item_id = context.user_data.get("drop_learning_selected")
+    if not item_id:
+        await update.message.reply_text("ابتدا دراپ لرنینگ را از فهرست انتخاب کنید.")
+        await show_drop_learning_menu(update.effective_chat.id, context)
+        return ADMIN_PANEL_DROP_LEARNING_MENU
+
+    description = (update.message.text or "").strip()
+    if not description:
+        await update.message.reply_text(
+            "توضیحات جدید نمی‌تواند خالی باشد.",
+            reply_markup=DROP_LEARNING_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_DROP_LEARNING_EDIT_DESCRIPTION
+
+    database.update_drop_learning(item_id, description=description)
+    context.user_data.pop("drop_learning_flow", None)
+    await update.message.reply_text("توضیحات دراپ لرنینگ به‌روزرسانی شد ✅")
+    await show_drop_learning_menu(update.effective_chat.id, context)
+    return ADMIN_PANEL_DROP_LEARNING_MENU
+
+
+async def admin_drop_learning_edit_title(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+    if not await ensure_registered_user(update, context):
+        return ConversationHandler.END
+    if not is_admin_user(update.effective_user.id):
+        await update.message.reply_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    item_id = context.user_data.get("drop_learning_selected")
+    if not item_id:
+        await update.message.reply_text("ابتدا دراپ لرنینگ را از فهرست انتخاب کنید.")
+        await show_drop_learning_menu(update.effective_chat.id, context)
+        return ADMIN_PANEL_DROP_LEARNING_MENU
+
+    title = (update.message.text or "").strip()
+    if not title:
+        await update.message.reply_text(
+            "عنوان نمی‌تواند خالی باشد.",
+            reply_markup=DROP_LEARNING_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_DROP_LEARNING_EDIT_TITLE
+
+    database.update_drop_learning(item_id, title=title)
+    context.user_data.pop("drop_learning_flow", None)
+    await update.message.reply_text("عنوان دراپ لرنینگ به‌روزرسانی شد ✅")
+    await show_drop_learning_menu(update.effective_chat.id, context)
+    return ADMIN_PANEL_DROP_LEARNING_MENU
+
+
+# Case Studies message handlers
+async def admin_case_studies_add_title(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+    if not await ensure_registered_user(update, context):
+        return ConversationHandler.END
+    if not is_admin_user(update.effective_user.id):
+        await update.message.reply_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    title = (update.message.text or "").strip()
+    if not title:
+        await update.message.reply_text(
+            "عنوان کیس استادی نمی‌تواند خالی باشد.",
+            reply_markup=CASE_STUDIES_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_CASE_STUDIES_ADD_TITLE
+
+    flow = context.user_data.get("case_studies_flow") or {}
+    flow["title"] = title
+    context.user_data["case_studies_flow"] = flow
+    await update.message.reply_text(
+        "توضیحات کیس استادی را ارسال کنید.",
+        reply_markup=CASE_STUDIES_CANCEL_MARKUP,
+    )
+    return ADMIN_PANEL_CASE_STUDIES_ADD_DESCRIPTION
+
+
+async def admin_case_studies_add_description(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+    if not await ensure_registered_user(update, context):
+        return ConversationHandler.END
+    if not is_admin_user(update.effective_user.id):
+        await update.message.reply_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    flow = context.user_data.get("case_studies_flow") or {}
+    title = flow.get("title")
+    if not title:
+        await update.message.reply_text(
+            "عنوان کیس استادی مشخص نیست.",
+            reply_markup=CASE_STUDIES_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_CASE_STUDIES_ADD_TITLE
+
+    description = (update.message.text or "").strip()
+    if not description:
+        await update.message.reply_text(
+            "توضیحات کیس استادی نمی‌تواند خالی باشد.",
+            reply_markup=CASE_STUDIES_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_CASE_STUDIES_ADD_DESCRIPTION
+
+    flow["description"] = description
+    context.user_data["case_studies_flow"] = flow
+    await update.message.reply_text(
+        "عکس کاور کیس استادی را ارسال کنید (یا /skip برای رد کردن).",
+        reply_markup=CASE_STUDIES_CANCEL_MARKUP,
+    )
+    return ADMIN_PANEL_CASE_STUDIES_ADD_COVER
+
+
+async def admin_case_studies_add_cover(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+    if not await ensure_registered_user(update, context):
+        return ConversationHandler.END
+    if not is_admin_user(update.effective_user.id):
+        await update.message.reply_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    flow = context.user_data.get("case_studies_flow") or {}
+    
+    if update.message.text and update.message.text.strip() == "/skip":
+        flow["cover_photo_file_id"] = None
+    elif update.message.photo:
+        photo = update.message.photo[-1]
+        flow["cover_photo_file_id"] = photo.file_id
+    else:
+        await update.message.reply_text(
+            "لطفاً یک عکس ارسال کنید یا /skip را بزنید.",
+            reply_markup=CASE_STUDIES_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_CASE_STUDIES_ADD_COVER
+
+    context.user_data["case_studies_flow"] = flow
+    await update.message.reply_text(
+        "محتوای کیس استادی را ارسال کنید (ویدیو، وویس، فایل و...).\n"
+        "می‌توانید چندین محتوا ارسال کنید.\n"
+        "بعد از اتمام، دکمه «پایان ✅» را بزنید.",
+        reply_markup=CASE_STUDIES_CONTENT_MARKUP,
+    )
+    return ADMIN_PANEL_CASE_STUDIES_ADD_CONTENT
+
+
+async def admin_case_studies_add_content(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+    if not await ensure_registered_user(update, context):
+        return ConversationHandler.END
+    if not is_admin_user(update.effective_user.id):
+        await update.message.reply_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    flow = context.user_data.get("case_studies_flow") or {}
+    content_items = flow.get("content_items", [])
+    
+    file_id = None
+    file_type = None
+    
+    if update.message.video:
+        file_id = update.message.video.file_id
+        file_type = "video"
+    elif update.message.voice:
+        file_id = update.message.voice.file_id
+        file_type = "voice"
+    elif update.message.audio:
+        file_id = update.message.audio.file_id
+        file_type = "audio"
+    elif update.message.document:
+        file_id = update.message.document.file_id
+        file_type = "document"
+    elif update.message.photo:
+        file_id = update.message.photo[-1].file_id
+        file_type = "photo"
+    elif update.message.video_note:
+        file_id = update.message.video_note.file_id
+        file_type = "video_note"
+    
+    if file_id and file_type:
+        content_items.append({
+            "file_id": file_id,
+            "file_type": file_type,
+            "order": len(content_items)
+        })
+        flow["content_items"] = content_items
+        context.user_data["case_studies_flow"] = flow
+        await update.message.reply_text(
+            f"محتوای {len(content_items)} ثبت شد.\n"
+            "می‌توانید محتوای دیگری ارسال کنید یا دکمه «پایان ✅» را بزنید.",
+            reply_markup=CASE_STUDIES_CONTENT_MARKUP,
+        )
+    else:
+        await update.message.reply_text(
+            "لطفاً یک فایل (ویدیو، وویس، فایل و...) ارسال کنید.",
+            reply_markup=CASE_STUDIES_CONTENT_MARKUP,
+        )
+    
+    return ADMIN_PANEL_CASE_STUDIES_ADD_CONTENT
+
+
+async def admin_case_studies_edit_description(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+    if not await ensure_registered_user(update, context):
+        return ConversationHandler.END
+    if not is_admin_user(update.effective_user.id):
+        await update.message.reply_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    item_id = context.user_data.get("case_studies_selected")
+    if not item_id:
+        await update.message.reply_text("ابتدا کیس استادی را از فهرست انتخاب کنید.")
+        await show_case_studies_menu(update.effective_chat.id, context)
+        return ADMIN_PANEL_CASE_STUDIES_MENU
+
+    description = (update.message.text or "").strip()
+    if not description:
+        await update.message.reply_text(
+            "توضیحات جدید نمی‌تواند خالی باشد.",
+            reply_markup=CASE_STUDIES_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_CASE_STUDIES_EDIT_DESCRIPTION
+
+    database.update_case_study(item_id, description=description)
+    context.user_data.pop("case_studies_flow", None)
+    await update.message.reply_text("توضیحات کیس استادی به‌روزرسانی شد ✅")
+    await show_case_studies_menu(update.effective_chat.id, context)
+    return ADMIN_PANEL_CASE_STUDIES_MENU
+
+
+async def admin_case_studies_edit_title(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+    if not await ensure_registered_user(update, context):
+        return ConversationHandler.END
+    if not is_admin_user(update.effective_user.id):
+        await update.message.reply_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    item_id = context.user_data.get("case_studies_selected")
+    if not item_id:
+        await update.message.reply_text("ابتدا کیس استادی را از فهرست انتخاب کنید.")
+        await show_case_studies_menu(update.effective_chat.id, context)
+        return ADMIN_PANEL_CASE_STUDIES_MENU
+
+    title = (update.message.text or "").strip()
+    if not title:
+        await update.message.reply_text(
+            "عنوان نمی‌تواند خالی باشد.",
+            reply_markup=CASE_STUDIES_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_CASE_STUDIES_EDIT_TITLE
+
+    database.update_case_study(item_id, title=title)
+    context.user_data.pop("case_studies_flow", None)
+    await update.message.reply_text("عنوان کیس استادی به‌روزرسانی شد ✅")
+    await show_case_studies_menu(update.effective_chat.id, context)
+    return ADMIN_PANEL_CASE_STUDIES_MENU
 
 
 async def show_remove_admin_menu(query, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1241,6 +1886,164 @@ async def admin_cancel(
     return ConversationHandler.END
 
 
+# Drop Learning functions (similar to webinar functions)
+DROP_LEARNING_CANCEL_MARKUP = InlineKeyboardMarkup(
+    [[InlineKeyboardButton("انصراف 🔙", callback_data="drop_learning:menu")]]
+)
+
+DROP_LEARNING_CONTENT_MARKUP = InlineKeyboardMarkup(
+    [
+        [InlineKeyboardButton("پایان ✅", callback_data="drop_learning:finish")],
+        [InlineKeyboardButton("انصراف 🔙", callback_data="drop_learning:menu")],
+    ]
+)
+
+
+def _drop_learning_preview_label(description: str) -> str:
+    first_line = (description or "").strip().splitlines()[0] if description else ""
+    if not first_line:
+        first_line = "دراپ لرنینگ بدون عنوان"
+    if len(first_line) > 40:
+        return f"{first_line[:37]}..."
+    return first_line
+
+
+async def show_drop_learning_menu(
+    target, context: ContextTypes.DEFAULT_TYPE, status: str | None = None
+) -> None:
+    items = list(database.list_drop_learning())
+    keyboard = [
+        [InlineKeyboardButton("➕ افزودن دراپ لرنینگ", callback_data="drop_learning:add")]
+    ]
+    for item in items:
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    (item["title"] or "").strip()
+                    or _drop_learning_preview_label(item["description"]),
+                    callback_data=f"drop_learning:select:{item['id']}",
+                )
+            ]
+        )
+    keyboard.append([InlineKeyboardButton("بازگشت 🔙", callback_data="drop_learning:back")])
+
+    text = "مدیریت دراپ لرنینگ:"
+    if status:
+        text += f"\n\n{status}"
+    if not items:
+        text += "\n\nدراپ لرنینگی ثبت نشده است."
+
+    markup = InlineKeyboardMarkup(keyboard)
+    if hasattr(target, "edit_message_text"):
+        await target.edit_message_text(text, reply_markup=markup)
+    else:
+        await context.bot.send_message(chat_id=target, text=text, reply_markup=markup)
+
+
+async def show_selected_drop_learning(
+    query, item: dict[str, str], status: str | None = None
+) -> None:
+    text_parts = []
+    if status:
+        text_parts.append(status)
+        text_parts.append("")
+    text_parts.append("مشخصات دراپ لرنینگ انتخاب‌شده:")
+    text_parts.append("")
+    text_parts.append(f"عنوان: {item['title'] or 'دراپ لرنینگ بدون عنوان'}")
+    text_parts.append("")
+    text_parts.append(item["description"])
+    text = "\n".join(text_parts)
+
+    keyboard = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("ویرایش عنوان 🏷️", callback_data="drop_learning:edit_title")],
+            [InlineKeyboardButton("ویرایش توضیحات 📝", callback_data="drop_learning:edit_desc")],
+            [InlineKeyboardButton("حذف دراپ لرنینگ 🗑️", callback_data="drop_learning:delete")],
+            [InlineKeyboardButton("بازگشت 🔙", callback_data="drop_learning:menu")],
+        ]
+    )
+    await query.edit_message_text(text, reply_markup=keyboard)
+
+
+# Case Studies functions (similar to webinar functions)
+CASE_STUDIES_CANCEL_MARKUP = InlineKeyboardMarkup(
+    [[InlineKeyboardButton("انصراف 🔙", callback_data="case_studies:menu")]]
+)
+
+CASE_STUDIES_CONTENT_MARKUP = InlineKeyboardMarkup(
+    [
+        [InlineKeyboardButton("پایان ✅", callback_data="case_studies:finish")],
+        [InlineKeyboardButton("انصراف 🔙", callback_data="case_studies:menu")],
+    ]
+)
+
+
+def _case_studies_preview_label(description: str) -> str:
+    first_line = (description or "").strip().splitlines()[0] if description else ""
+    if not first_line:
+        first_line = "کیس استادی بدون عنوان"
+    if len(first_line) > 40:
+        return f"{first_line[:37]}..."
+    return first_line
+
+
+async def show_case_studies_menu(
+    target, context: ContextTypes.DEFAULT_TYPE, status: str | None = None
+) -> None:
+    items = list(database.list_case_studies())
+    keyboard = [
+        [InlineKeyboardButton("➕ افزودن کیس استادی", callback_data="case_studies:add")]
+    ]
+    for item in items:
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    (item["title"] or "").strip()
+                    or _case_studies_preview_label(item["description"]),
+                    callback_data=f"case_studies:select:{item['id']}",
+                )
+            ]
+        )
+    keyboard.append([InlineKeyboardButton("بازگشت 🔙", callback_data="case_studies:back")])
+
+    text = "مدیریت کیس استادی:"
+    if status:
+        text += f"\n\n{status}"
+    if not items:
+        text += "\n\nکیس استادی ثبت نشده است."
+
+    markup = InlineKeyboardMarkup(keyboard)
+    if hasattr(target, "edit_message_text"):
+        await target.edit_message_text(text, reply_markup=markup)
+    else:
+        await context.bot.send_message(chat_id=target, text=text, reply_markup=markup)
+
+
+async def show_selected_case_study(
+    query, item: dict[str, str], status: str | None = None
+) -> None:
+    text_parts = []
+    if status:
+        text_parts.append(status)
+        text_parts.append("")
+    text_parts.append("مشخصات کیس استادی انتخاب‌شده:")
+    text_parts.append("")
+    text_parts.append(f"عنوان: {item['title'] or 'کیس استادی بدون عنوان'}")
+    text_parts.append("")
+    text_parts.append(item["description"])
+    text = "\n".join(text_parts)
+
+    keyboard = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("ویرایش عنوان 🏷️", callback_data="case_studies:edit_title")],
+            [InlineKeyboardButton("ویرایش توضیحات 📝", callback_data="case_studies:edit_desc")],
+            [InlineKeyboardButton("حذف کیس استادی 🗑️", callback_data="case_studies:delete")],
+            [InlineKeyboardButton("بازگشت 🔙", callback_data="case_studies:menu")],
+        ]
+    )
+    await query.edit_message_text(text, reply_markup=keyboard)
+
+
 def create_admin_conversation() -> ConversationHandler:
     private_text = filters.ChatType.PRIVATE & filters.TEXT
 
@@ -1297,12 +2100,6 @@ def create_admin_conversation() -> ConversationHandler:
                 ),
                 CallbackQueryHandler(admin_panel_webinar_callback, pattern="^webinar:"),
             ],
-            ADMIN_PANEL_WEBINAR_ADD_LINK: [
-                MessageHandler(
-                    private_text & ~filters.COMMAND, admin_webinar_add_link
-                ),
-                CallbackQueryHandler(admin_panel_webinar_callback, pattern="^webinar:"),
-            ],
             ADMIN_PANEL_WEBINAR_ADD_COVER: [
                 MessageHandler(
                     filters.PHOTO | (filters.TEXT & filters.Regex("^/skip$")),
@@ -1323,17 +2120,93 @@ def create_admin_conversation() -> ConversationHandler:
                 ),
                 CallbackQueryHandler(admin_panel_webinar_callback, pattern="^webinar:"),
             ],
-            ADMIN_PANEL_WEBINAR_EDIT_LINK: [
-                MessageHandler(
-                    private_text & ~filters.COMMAND, admin_webinar_edit_link
-                ),
-                CallbackQueryHandler(admin_panel_webinar_callback, pattern="^webinar:"),
-            ],
             ADMIN_PANEL_WEBINAR_EDIT_TITLE: [
                 MessageHandler(
                     private_text & ~filters.COMMAND, admin_webinar_edit_title
                 ),
                 CallbackQueryHandler(admin_panel_webinar_callback, pattern="^webinar:"),
+            ],
+            ADMIN_PANEL_DROP_LEARNING_MENU: [
+                CallbackQueryHandler(admin_panel_drop_learning_callback, pattern="^drop_learning:"),
+            ],
+            ADMIN_PANEL_DROP_LEARNING_ADD_TITLE: [
+                MessageHandler(
+                    private_text & ~filters.COMMAND, admin_drop_learning_add_title
+                ),
+                CallbackQueryHandler(admin_panel_drop_learning_callback, pattern="^drop_learning:"),
+            ],
+            ADMIN_PANEL_DROP_LEARNING_ADD_DESCRIPTION: [
+                MessageHandler(
+                    private_text & ~filters.COMMAND, admin_drop_learning_add_description
+                ),
+                CallbackQueryHandler(admin_panel_drop_learning_callback, pattern="^drop_learning:"),
+            ],
+            ADMIN_PANEL_DROP_LEARNING_ADD_COVER: [
+                MessageHandler(
+                    filters.PHOTO | (filters.TEXT & filters.Regex("^/skip$")),
+                    admin_drop_learning_add_cover
+                ),
+                CallbackQueryHandler(admin_panel_drop_learning_callback, pattern="^drop_learning:"),
+            ],
+            ADMIN_PANEL_DROP_LEARNING_ADD_CONTENT: [
+                MessageHandler(
+                    filters.VIDEO | filters.VOICE | filters.AUDIO | filters.Document.ALL | filters.PHOTO | filters.VIDEO_NOTE,
+                    admin_drop_learning_add_content
+                ),
+                CallbackQueryHandler(admin_panel_drop_learning_callback, pattern="^drop_learning:"),
+            ],
+            ADMIN_PANEL_DROP_LEARNING_EDIT_DESCRIPTION: [
+                MessageHandler(
+                    private_text & ~filters.COMMAND, admin_drop_learning_edit_description
+                ),
+                CallbackQueryHandler(admin_panel_drop_learning_callback, pattern="^drop_learning:"),
+            ],
+            ADMIN_PANEL_DROP_LEARNING_EDIT_TITLE: [
+                MessageHandler(
+                    private_text & ~filters.COMMAND, admin_drop_learning_edit_title
+                ),
+                CallbackQueryHandler(admin_panel_drop_learning_callback, pattern="^drop_learning:"),
+            ],
+            ADMIN_PANEL_CASE_STUDIES_MENU: [
+                CallbackQueryHandler(admin_panel_case_studies_callback, pattern="^case_studies:"),
+            ],
+            ADMIN_PANEL_CASE_STUDIES_ADD_TITLE: [
+                MessageHandler(
+                    private_text & ~filters.COMMAND, admin_case_studies_add_title
+                ),
+                CallbackQueryHandler(admin_panel_case_studies_callback, pattern="^case_studies:"),
+            ],
+            ADMIN_PANEL_CASE_STUDIES_ADD_DESCRIPTION: [
+                MessageHandler(
+                    private_text & ~filters.COMMAND, admin_case_studies_add_description
+                ),
+                CallbackQueryHandler(admin_panel_case_studies_callback, pattern="^case_studies:"),
+            ],
+            ADMIN_PANEL_CASE_STUDIES_ADD_COVER: [
+                MessageHandler(
+                    filters.PHOTO | (filters.TEXT & filters.Regex("^/skip$")),
+                    admin_case_studies_add_cover
+                ),
+                CallbackQueryHandler(admin_panel_case_studies_callback, pattern="^case_studies:"),
+            ],
+            ADMIN_PANEL_CASE_STUDIES_ADD_CONTENT: [
+                MessageHandler(
+                    filters.VIDEO | filters.VOICE | filters.AUDIO | filters.Document.ALL | filters.PHOTO | filters.VIDEO_NOTE,
+                    admin_case_studies_add_content
+                ),
+                CallbackQueryHandler(admin_panel_case_studies_callback, pattern="^case_studies:"),
+            ],
+            ADMIN_PANEL_CASE_STUDIES_EDIT_DESCRIPTION: [
+                MessageHandler(
+                    private_text & ~filters.COMMAND, admin_case_studies_edit_description
+                ),
+                CallbackQueryHandler(admin_panel_case_studies_callback, pattern="^case_studies:"),
+            ],
+            ADMIN_PANEL_CASE_STUDIES_EDIT_TITLE: [
+                MessageHandler(
+                    private_text & ~filters.COMMAND, admin_case_studies_edit_title
+                ),
+                CallbackQueryHandler(admin_panel_case_studies_callback, pattern="^case_studies:"),
             ],
         },
         fallbacks=[CommandHandler("cancel", admin_cancel)],
