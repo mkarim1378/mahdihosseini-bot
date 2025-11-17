@@ -177,6 +177,15 @@ async def handle_menu_selection(
                 "یکی از خدمات زیر را انتخاب کن:",
                 reply_markup=SERVICE_MENU_KEYBOARD,
             )
+            return
+        
+        if text == "رزرو مشاوره":
+            await update.message.reply_text(
+                CONSULTATION_MESSAGE,
+                reply_markup=consultation_payment_keyboard(),
+            )
+            return
+        
         webinar_map = context.user_data.get("webinar_menu")
         if webinar_map and text in webinar_map:
             webinar_id = webinar_map[text]
@@ -357,11 +366,6 @@ async def handle_menu_selection(
             await update.message.reply_text(
                 "بازگشت به منوی اصلی.",
                 reply_markup=build_main_menu_keyboard(user_id),
-            )
-        elif text == "رزرو مشاوره":
-            await update.message.reply_text(
-                CONSULTATION_MESSAGE,
-                reply_markup=consultation_payment_keyboard(),
             )
             return
         elif text in SERVICE_RESPONSES:
