@@ -249,8 +249,10 @@ async def admin_panel_settings_callback(
     data = query.data
 
     if data == "settings:manage":
+        admin_list_text = format_admin_list_text()
+        message_text = "بخش مدیریت ادمین‌ها:\n\n📋 لیست ادمین‌ها:\n" + admin_list_text
         await query.edit_message_text(
-            "بخش مدیریت ادمین‌ها:",
+            message_text,
             reply_markup=admin_manage_keyboard(),
         )
         return ADMIN_PANEL_MANAGE
@@ -320,14 +322,6 @@ async def admin_panel_manage_callback(
     if data == "manage:remove":
         await show_remove_admin_menu(query, context)
         return ADMIN_PANEL_REMOVE_PHONE
-
-    if data == "manage:list":
-        await reply_with_admin_list(update, context, edit_message=True)
-        await query.edit_message_text(
-            "بخش مدیریت ادمین‌ها:",
-            reply_markup=admin_manage_keyboard(),
-        )
-        return ADMIN_PANEL_MANAGE
 
     if data == "manage:back":
         await query.edit_message_text(
@@ -1726,12 +1720,8 @@ async def show_remove_admin_menu(query, context: ContextTypes.DEFAULT_TYPE) -> N
     )
 
 
-async def reply_with_admin_list(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    *,
-    edit_message: bool = False,
-) -> None:
+def format_admin_list_text() -> str:
+    """Format admin list as text."""
     admins = list(database.list_admins())
     lines = []
 
@@ -1788,9 +1778,18 @@ async def reply_with_admin_list(
         )
 
     if not lines:
-        lines.append("ادمینی ثبت نشده است.")
+        return "ادمینی ثبت نشده است."
 
-    text = "\n\n".join(lines)
+    return "\n\n".join(lines)
+
+
+async def reply_with_admin_list(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    edit_message: bool = False,
+) -> None:
+    text = format_admin_list_text()
 
     if edit_message and update.callback_query:
         await update.callback_query.message.reply_text(text)

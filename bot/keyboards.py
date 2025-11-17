@@ -107,7 +107,6 @@ def admin_manage_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton("افزودن ادمین ➕", callback_data="manage:add"),
                 InlineKeyboardButton("حذف ادمین ➖", callback_data="manage:remove"),
             ],
-            [InlineKeyboardButton("لیست ادمین‌ها 📋", callback_data="manage:list")],
             [InlineKeyboardButton("بازگشت 🔙", callback_data="manage:back")],
         ]
     )
