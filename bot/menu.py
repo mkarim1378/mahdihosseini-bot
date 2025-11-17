@@ -141,6 +141,16 @@ async def handle_menu_selection(
     if update.message:
         user_id = update.effective_user.id if update.effective_user else None
         text = update.message.text or ""
+        
+        # Ignore admin panel messages - they should be handled by admin conversation handler
+        admin_panel_texts = [
+            "تنظیمات ربات ⚙️",
+            "آمار گیری 📊",
+            "مدیریت وبینارها 🎥",
+            "بازگشت به ربات ⬅️",
+        ]
+        if text in admin_panel_texts:
+            return
         if text == "خدمات":
             await update.message.reply_text(
                 "یکی از خدمات زیر را انتخاب کن:",
