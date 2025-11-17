@@ -612,6 +612,34 @@ async def handle_register_phone_callback(
     )
 
 
+async def handle_sendphone_command(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle /sendphone command to request phone number."""
+    if not await ensure_private_chat(update, context):
+        return
+    if not await ensure_channel_membership(update, context):
+        return
+    
+    user = update.effective_user
+    if not user:
+        return
+    
+    # Check if user already has phone
+    if database.user_has_phone(user.id):
+        await update.message.reply_text(
+            "شماره موبایل شما قبلاً ثبت شده است.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        return
+    
+    # Request phone number
+    await update.message.reply_text(
+        "لطفاً شماره موبایل خود را از طریق دکمه زیر ارسال کنید.",
+        reply_markup=REQUEST_CONTACT_KEYBOARD,
+    )
+
+
 async def handle_membership_verification(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -646,6 +674,7 @@ __all__ = [
     "handle_membership_verification",
     "handle_menu_selection",
     "handle_register_phone_callback",
+    "handle_sendphone_command",
     "send_main_menu",
     "send_webinar_content",
     "send_drop_learning_content",
