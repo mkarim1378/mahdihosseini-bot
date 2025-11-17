@@ -310,12 +310,8 @@ async def admin_panel_manage_callback(
 
     if data == "manage:add":
         await query.edit_message_text(
-            "لطفاً شماره موبایل کاربر را از طریق دکمه زیر ارسال کنید.",
-        )
-        await context.bot.send_message(
-            chat_id=query.message.chat_id,
-            text="شماره موبایل کاربر را ارسال کنید:",
-            reply_markup=REQUEST_CONTACT_KEYBOARD,
+            "شماره موبایل کاربر را ارسال کنید (۱۰ رقم پایانی).",
+            reply_markup=admin_add_cancel_keyboard(),
         )
         return ADMIN_PANEL_ADD_PHONE
 
@@ -1723,6 +1719,12 @@ async def show_remove_admin_menu(query, context: ContextTypes.DEFAULT_TYPE) -> N
 def format_admin_list_text() -> str:
     """Format admin list as text."""
     admins = list(database.list_admins())
+    # Filter out temp admins from the list
+    real_admins = [a for a in admins if a["telegram_id"] not in TEMP_ADMIN_IDS]
+    
+    if not real_admins:
+        return "ادمینی ثبت نشده است."
+    
     lines = []
 
     def number_to_emoji(n: int) -> str:
@@ -1741,44 +1743,20 @@ def format_admin_list_text() -> str:
         }
         return emojis.get(n, f"{n}.")
 
-    for idx, record in enumerate(admins, start=1):
-        phone_display = record["phone_number"] or "نامشخص"
+    for idx, record in enumerate(real_admins, start=1):
+        phone_display = record["phone_number"] or ""
         full_name = " ".join(
             part for part in (record["fname"], record["lname"]) if part
         ).strip() or "بدون نام"
-        username = f"@{record['username']}" if record["username"] else "بدون نام کاربری"
-        lines.append(
-            "\n".join(
-                [
-                    number_to_emoji(idx),
-                    f"نام: {full_name}",
-                    f"یوزرنیم: {username}",
-                    f"شماره: {phone_display}",
-                ]
-            )
-        )
-
-    for temp_idx, temp_admin in enumerate(
-        sorted(
-            tid
-            for tid in TEMP_ADMIN_IDS
-            if not any(a["telegram_id"] == tid for a in admins)
-        ),
-        start=len(lines) + 1,
-    ):
-        lines.append(
-            "\n".join(
-                [
-                    number_to_emoji(temp_idx),
-                    "نام: ادمین موقت",
-                    "یوزرنیم: نامشخص",
-                    "شماره: نامشخص",
-                ]
-            )
-        )
-
-    if not lines:
-        return "ادمینی ثبت نشده است."
+        username = f"@{record['username']}" if record["username"] else ""
+        
+        admin_info = [number_to_emoji(idx), f"نام: {full_name}"]
+        if username:
+            admin_info.append(f"یوزرنیم: {username}")
+        if phone_display:
+            admin_info.append(f"شماره: {phone_display}")
+        
+        lines.append("\n".join(admin_info))
 
     return "\n\n".join(lines)
 
@@ -1872,22 +1850,28 @@ async def admin_add_phone(
             await update.message.reply_text("دسترسی شما قطع شده است.")
         return ConversationHandler.END
 
-    # Only accept contact, not text
-    if not update.message or not update.message.contact:
-        if update.message:
-            await update.message.reply_text(
-                "لطفاً شماره موبایل را از طریق دکمه ارسال کنید، نه با تایپ کردن.",
-                reply_markup=REQUEST_CONTACT_KEYBOARD,
-            )
+    if not update.message:
         return ADMIN_PANEL_ADD_PHONE
 
-    contact = update.message.contact
-    phone_number = extract_phone_last10(contact.phone_number)
+    # Accept both text and contact
+    phone_input = None
+    if update.message.contact:
+        phone_input = update.message.contact.phone_number
+    elif update.message.text:
+        phone_input = update.message.text.strip()
+    else:
+        await update.message.reply_text(
+            "لطفاً شماره موبایل را ارسال کنید (۱۰ رقم پایانی).",
+            reply_markup=admin_add_cancel_keyboard(),
+        )
+        return ADMIN_PANEL_ADD_PHONE
+
+    phone_number = extract_phone_last10(phone_input)
     if not phone_number:
         if update.message:
             await update.message.reply_text(
-                "شماره موبایل معتبر نیست. لطفاً دوباره شماره را ارسال کنید.",
-                reply_markup=REQUEST_CONTACT_KEYBOARD,
+                "شماره موبایل معتبر نیست. لطفاً دوباره شماره را ارسال کنید (۱۰ رقم پایانی).",
+                reply_markup=admin_add_cancel_keyboard(),
             )
         return ADMIN_PANEL_ADD_PHONE
 
@@ -1896,7 +1880,7 @@ async def admin_add_phone(
         if update.message:
             await update.message.reply_text(
                 "هیچ کاربری با این شماره موبایل در ربات ثبت نشده است.",
-                reply_markup=REQUEST_CONTACT_KEYBOARD,
+                reply_markup=admin_add_cancel_keyboard(),
             )
         return ADMIN_PANEL_ADD_PHONE
 
@@ -2168,7 +2152,10 @@ def create_admin_conversation() -> ConversationHandler:
                 ),
             ],
             ADMIN_PANEL_ADD_PHONE: [
-                MessageHandler(filters.ChatType.PRIVATE & filters.CONTACT, admin_add_phone),
+                MessageHandler(
+                    filters.ChatType.PRIVATE & (filters.TEXT | filters.CONTACT) & ~filters.COMMAND,
+                    admin_add_phone
+                ),
                 CallbackQueryHandler(admin_add_cancel_callback, pattern="^add:cancel$"),
             ],
             ADMIN_PANEL_REMOVE_PHONE: [
