@@ -214,15 +214,11 @@ def _ensure_webinars_schema(conn: sqlite3.Connection) -> None:
             ADD COLUMN cover_photo_file_id TEXT
             """
         )
+        # Update columns dict after adding the column
+        columns["cover_photo_file_id"] = {"type": "TEXT", "notnull": 0, "default": None}
     # Remove registration_link if it exists (migration)
     if "registration_link" in columns:
         # SQLite doesn't support DROP COLUMN directly, so we'll recreate the table
-        # First, check if cover_photo_file_id exists, if not add it
-        if "cover_photo_file_id" not in columns:
-            conn.execute("""
-                ALTER TABLE webinars
-                ADD COLUMN cover_photo_file_id TEXT
-            """)
         # Now recreate table without registration_link
         conn.execute("""
             CREATE TABLE IF NOT EXISTS webinars_new (
