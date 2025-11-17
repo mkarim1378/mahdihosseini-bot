@@ -1312,7 +1312,7 @@ def create_admin_conversation() -> ConversationHandler:
             ],
             ADMIN_PANEL_WEBINAR_ADD_CONTENT: [
                 MessageHandler(
-                    filters.VIDEO | filters.VOICE | filters.AUDIO | filters.DOCUMENT | filters.PHOTO | filters.VIDEO_NOTE,
+                    filters.VIDEO | filters.VOICE | filters.AUDIO | filters.Document.ALL | filters.PHOTO | filters.VIDEO_NOTE,
                     admin_webinar_add_content
                 ),
                 CallbackQueryHandler(admin_panel_webinar_callback, pattern="^webinar:"),
