@@ -153,234 +153,244 @@ async def handle_menu_selection(
         return
     if not await ensure_channel_membership(update, context):
         return
-    if not await ensure_registered_user(update, context):
+    
+    # Check registration but don't block if phone requirement is disabled
+    # ensure_registered_user will prompt for phone if needed
+    registration_ok = await ensure_registered_user(update, context)
+    if not registration_ok:
+        # ensure_registered_user already sent a message to user, just return
         return
 
-    if update.message:
-        user_id = update.effective_user.id if update.effective_user else None
-        text = update.message.text or ""
+    if not update.message:
+        return
         
-        # Ignore admin panel messages - they should be handled by admin conversation handler
-        admin_panel_texts = [
-            "تنظیمات ربات ⚙️",
-            "آمار گیری 📊",
-            "مدیریت وبینارها 🎥",
-            "مدیریت دراپ لرنینگ 📚",
-            "مدیریت کیس استادی 📋",
-            "پیام همگانی 📢",
-            "بازگشت به ربات ⬅️",
-        ]
-        if text in admin_panel_texts:
-            return
-        if text == "خدمات":
+    user_id = update.effective_user.id if update.effective_user else None
+    text = update.message.text or ""
+    
+    logging.info(f"Handling menu selection: text='{text}', user_id={user_id}")
+    
+    # Ignore admin panel messages - they should be handled by admin conversation handler
+    admin_panel_texts = [
+        "تنظیمات ربات ⚙️",
+        "آمار گیری 📊",
+        "مدیریت وبینارها 🎥",
+        "مدیریت دراپ لرنینگ 📚",
+        "مدیریت کیس استادی 📋",
+        "پیام همگانی 📢",
+        "بازگشت به ربات ⬅️",
+    ]
+    if text in admin_panel_texts:
+        return
+    if text == "خدمات":
+        await update.message.reply_text(
+            "یکی از خدمات زیر را انتخاب کن:",
+            reply_markup=SERVICE_MENU_KEYBOARD,
+        )
+        return
+    
+    if text == "رزرو مشاوره":
+        await update.message.reply_text(
+            CONSULTATION_MESSAGE,
+            reply_markup=consultation_payment_keyboard(),
+        )
+        return
+    
+    webinar_map = context.user_data.get("webinar_menu")
+    if webinar_map and text in webinar_map:
+        webinar_id = webinar_map[text]
+        webinar = database.get_webinar(webinar_id)
+        if not webinar:
             await update.message.reply_text(
-                "یکی از خدمات زیر را انتخاب کن:",
-                reply_markup=SERVICE_MENU_KEYBOARD,
+                "این وبینار دیگر در دسترس نیست!",
+                reply_markup=build_main_menu_keyboard(user_id),
             )
+            context.user_data.pop("webinar_menu", None)
             return
-        
-        if text == "رزرو مشاوره":
+
+        # Check if user has phone number
+        user = update.effective_user
+        if not user or not database.user_has_phone(user.id):
+            # User doesn't have phone, show registration message
+            context.user_data["pending_webinar_id"] = webinar_id
             await update.message.reply_text(
-                CONSULTATION_MESSAGE,
-                reply_markup=consultation_payment_keyboard(),
-            )
-            return
-        
-        webinar_map = context.user_data.get("webinar_menu")
-        if webinar_map and text in webinar_map:
-            webinar_id = webinar_map[text]
-            webinar = database.get_webinar(webinar_id)
-            if not webinar:
-                await update.message.reply_text(
-                    "این وبینار دیگر در دسترس نیست!",
-                    reply_markup=build_main_menu_keyboard(user_id),
-                )
-                context.user_data.pop("webinar_menu", None)
-                return
-
-            # Check if user has phone number
-            user = update.effective_user
-            if not user or not database.user_has_phone(user.id):
-                # User doesn't have phone, show registration message
-                context.user_data["pending_webinar_id"] = webinar_id
-                await update.message.reply_text(
-                    "جهت ثبت نام در ربات دکمه رو بزنید",
-                    reply_markup=register_phone_keyboard(),
-                )
-                return
-
-            # User has phone, show webinar content
-            await send_webinar_content(update, context, webinar_id)
-            return
-
-        if text == "وبینار ها":
-            webinars = list(database.list_webinars())
-            if not webinars:
-                await update.message.reply_text(
-                    "در حال حاضر وبیناری ثبت نشده است.",
-                    reply_markup=build_main_menu_keyboard(user_id),
-                )
-                return
-
-            titles = [webinar["title"] or "وبینار بدون عنوان" for webinar in webinars]
-            rows: list[list[KeyboardButton]] = []
-            for i in range(0, len(titles), 2):
-                chunk = [KeyboardButton(t) for t in titles[i : i + 2]]
-                rows.append(chunk)
-            rows.append([KeyboardButton("بازگشت")])
-
-            webinar_keyboard = ReplyKeyboardMarkup(rows, resize_keyboard=True)
-            context.user_data["webinar_menu"] = {
-                (webinar["title"] or "وبینار بدون عنوان"): webinar["id"]
-                for webinar in webinars
-            }
-            await update.message.reply_text(
-                "یکی از وبینارهای زیر را انتخاب کن:",
-                reply_markup=webinar_keyboard,
+                "جهت ثبت نام در ربات دکمه رو بزنید",
+                reply_markup=register_phone_keyboard(),
             )
             return
 
-        if text == "دراپ لرنینگ":
-            items = list(database.list_drop_learning())
-            if not items:
-                await update.message.reply_text(
-                    "در حال حاضر دراپ لرنینگی ثبت نشده است.",
-                    reply_markup=build_main_menu_keyboard(user_id),
-                )
-                return
+        # User has phone, show webinar content
+        await send_webinar_content(update, context, webinar_id)
+        return
 
-            titles = [item["title"] or "دراپ لرنینگ بدون عنوان" for item in items]
-            rows: list[list[KeyboardButton]] = []
-            for i in range(0, len(titles), 2):
-                chunk = [KeyboardButton(t) for t in titles[i : i + 2]]
-                rows.append(chunk)
-            rows.append([KeyboardButton("بازگشت")])
-
-            drop_learning_keyboard = ReplyKeyboardMarkup(rows, resize_keyboard=True)
-            context.user_data["drop_learning_menu"] = {
-                (item["title"] or "دراپ لرنینگ بدون عنوان"): item["id"]
-                for item in items
-            }
+    if text == "وبینار ها":
+        webinars = list(database.list_webinars())
+        if not webinars:
             await update.message.reply_text(
-                "یکی از دراپ لرنینگ‌های زیر را انتخاب کن:",
-                reply_markup=drop_learning_keyboard,
+                "در حال حاضر وبیناری ثبت نشده است.",
+                reply_markup=build_main_menu_keyboard(user_id),
             )
             return
 
-        if text == "Case Studies":
-            items = list(database.list_case_studies())
-            if not items:
-                await update.message.reply_text(
-                    "در حال حاضر کیس استادی ثبت نشده است.",
-                    reply_markup=build_main_menu_keyboard(user_id),
-                )
-                return
+        titles = [webinar["title"] or "وبینار بدون عنوان" for webinar in webinars]
+        rows: list[list[KeyboardButton]] = []
+        for i in range(0, len(titles), 2):
+            chunk = [KeyboardButton(t) for t in titles[i : i + 2]]
+            rows.append(chunk)
+        rows.append([KeyboardButton("بازگشت")])
 
-            titles = [item["title"] or "کیس استادی بدون عنوان" for item in items]
-            rows: list[list[KeyboardButton]] = []
-            for i in range(0, len(titles), 2):
-                chunk = [KeyboardButton(t) for t in titles[i : i + 2]]
-                rows.append(chunk)
-            rows.append([KeyboardButton("بازگشت")])
+        webinar_keyboard = ReplyKeyboardMarkup(rows, resize_keyboard=True)
+        context.user_data["webinar_menu"] = {
+            (webinar["title"] or "وبینار بدون عنوان"): webinar["id"]
+            for webinar in webinars
+        }
+        await update.message.reply_text(
+            "یکی از وبینارهای زیر را انتخاب کن:",
+            reply_markup=webinar_keyboard,
+        )
+        return
 
-            case_studies_keyboard = ReplyKeyboardMarkup(rows, resize_keyboard=True)
-            context.user_data["case_studies_menu"] = {
-                (item["title"] or "کیس استادی بدون عنوان"): item["id"]
-                for item in items
-            }
+    if text == "دراپ لرنینگ":
+        items = list(database.list_drop_learning())
+        if not items:
             await update.message.reply_text(
-                "یکی از کیس استادی‌های زیر را انتخاب کن:",
-                reply_markup=case_studies_keyboard,
+                "در حال حاضر دراپ لرنینگی ثبت نشده است.",
+                reply_markup=build_main_menu_keyboard(user_id),
             )
             return
 
-        # Handle drop learning selection
-        drop_learning_map = context.user_data.get("drop_learning_menu")
-        if drop_learning_map and text in drop_learning_map:
-            item_id = drop_learning_map[text]
-            item = database.get_drop_learning(item_id)
-            if not item:
-                await update.message.reply_text(
-                    "این دراپ لرنینگ دیگر در دسترس نیست.",
-                    reply_markup=build_main_menu_keyboard(user_id),
-                )
-                context.user_data.pop("drop_learning_menu", None)
-                return
+        titles = [item["title"] or "دراپ لرنینگ بدون عنوان" for item in items]
+        rows: list[list[KeyboardButton]] = []
+        for i in range(0, len(titles), 2):
+            chunk = [KeyboardButton(t) for t in titles[i : i + 2]]
+            rows.append(chunk)
+        rows.append([KeyboardButton("بازگشت")])
 
-            user = update.effective_user
-            if not user or not database.user_has_phone(user.id):
-                context.user_data["pending_drop_learning_id"] = item_id
-                await update.message.reply_text(
-                    "جهت ثبت نام در ربات دکمه رو بزنید",
-                    reply_markup=register_phone_keyboard(),
-                )
-                return
+        drop_learning_keyboard = ReplyKeyboardMarkup(rows, resize_keyboard=True)
+        context.user_data["drop_learning_menu"] = {
+            (item["title"] or "دراپ لرنینگ بدون عنوان"): item["id"]
+            for item in items
+        }
+        await update.message.reply_text(
+            "یکی از دراپ لرنینگ‌های زیر را انتخاب کن:",
+            reply_markup=drop_learning_keyboard,
+        )
+        return
 
-            await send_drop_learning_content(update, context, item_id)
+    if text == "Case Studies":
+        items = list(database.list_case_studies())
+        if not items:
+            await update.message.reply_text(
+                "در حال حاضر کیس استادی ثبت نشده است.",
+                reply_markup=build_main_menu_keyboard(user_id),
+            )
             return
 
-        # Handle case studies selection
-        case_studies_map = context.user_data.get("case_studies_menu")
-        if case_studies_map and text in case_studies_map:
-            item_id = case_studies_map[text]
-            item = database.get_case_study(item_id)
-            if not item:
-                await update.message.reply_text(
-                    "این کیس استادی دیگر در دسترس نیست.",
-                    reply_markup=build_main_menu_keyboard(user_id),
-                )
-                context.user_data.pop("case_studies_menu", None)
-                return
+        titles = [item["title"] or "کیس استادی بدون عنوان" for item in items]
+        rows: list[list[KeyboardButton]] = []
+        for i in range(0, len(titles), 2):
+            chunk = [KeyboardButton(t) for t in titles[i : i + 2]]
+            rows.append(chunk)
+        rows.append([KeyboardButton("بازگشت")])
 
-            user = update.effective_user
-            if not user or not database.user_has_phone(user.id):
-                context.user_data["pending_case_study_id"] = item_id
-                await update.message.reply_text(
-                    "جهت ثبت نام در ربات دکمه رو بزنید",
-                    reply_markup=register_phone_keyboard(),
-                )
-                return
+        case_studies_keyboard = ReplyKeyboardMarkup(rows, resize_keyboard=True)
+        context.user_data["case_studies_menu"] = {
+            (item["title"] or "کیس استادی بدون عنوان"): item["id"]
+            for item in items
+        }
+        await update.message.reply_text(
+            "یکی از کیس استادی‌های زیر را انتخاب کن:",
+            reply_markup=case_studies_keyboard,
+        )
+        return
 
-            await send_case_study_content(update, context, item_id)
+    # Handle drop learning selection
+    drop_learning_map = context.user_data.get("drop_learning_menu")
+    if drop_learning_map and text in drop_learning_map:
+        item_id = drop_learning_map[text]
+        item = database.get_drop_learning(item_id)
+        if not item:
+            await update.message.reply_text(
+                "این دراپ لرنینگ دیگر در دسترس نیست.",
+                reply_markup=build_main_menu_keyboard(user_id),
+            )
+            context.user_data.pop("drop_learning_menu", None)
             return
 
-        if text == "بازگشت":
-            if context.user_data.pop("webinar_menu", None):
-                await update.message.reply_text(
-                    "بازگشت به منوی اصلی.",
-                    reply_markup=build_main_menu_keyboard(user_id),
-                )
-                return
-            if context.user_data.pop("drop_learning_menu", None):
-                await update.message.reply_text(
-                    "بازگشت به منوی اصلی.",
-                    reply_markup=build_main_menu_keyboard(user_id),
-                )
-                return
-            if context.user_data.pop("case_studies_menu", None):
-                await update.message.reply_text(
-                    "بازگشت به منوی اصلی.",
-                    reply_markup=build_main_menu_keyboard(user_id),
-                )
-                return
+        user = update.effective_user
+        if not user or not database.user_has_phone(user.id):
+            context.user_data["pending_drop_learning_id"] = item_id
+            await update.message.reply_text(
+                "جهت ثبت نام در ربات دکمه رو بزنید",
+                reply_markup=register_phone_keyboard(),
+            )
+            return
+
+        await send_drop_learning_content(update, context, item_id)
+        return
+
+    # Handle case studies selection
+    case_studies_map = context.user_data.get("case_studies_menu")
+    if case_studies_map and text in case_studies_map:
+        item_id = case_studies_map[text]
+        item = database.get_case_study(item_id)
+        if not item:
+            await update.message.reply_text(
+                "این کیس استادی دیگر در دسترس نیست.",
+                reply_markup=build_main_menu_keyboard(user_id),
+            )
+            context.user_data.pop("case_studies_menu", None)
+            return
+
+        user = update.effective_user
+        if not user or not database.user_has_phone(user.id):
+            context.user_data["pending_case_study_id"] = item_id
+            await update.message.reply_text(
+                "جهت ثبت نام در ربات دکمه رو بزنید",
+                reply_markup=register_phone_keyboard(),
+            )
+            return
+
+        await send_case_study_content(update, context, item_id)
+        return
+
+    if text == "بازگشت":
+        if context.user_data.pop("webinar_menu", None):
             await update.message.reply_text(
                 "بازگشت به منوی اصلی.",
                 reply_markup=build_main_menu_keyboard(user_id),
             )
             return
-        elif text in SERVICE_RESPONSES:
+        if context.user_data.pop("drop_learning_menu", None):
             await update.message.reply_text(
-                SERVICE_RESPONSES[text],
-                reply_markup=SERVICE_MENU_KEYBOARD,
-            )
-        else:
-            response = CORE_MENU_RESPONSES.get(
-                text, "این بخش به زودی در دسترس قرار می‌گیرد."
-            )
-            await update.message.reply_text(
-                response,
+                "بازگشت به منوی اصلی.",
                 reply_markup=build_main_menu_keyboard(user_id),
             )
+            return
+        if context.user_data.pop("case_studies_menu", None):
+            await update.message.reply_text(
+                "بازگشت به منوی اصلی.",
+                reply_markup=build_main_menu_keyboard(user_id),
+            )
+            return
+        await update.message.reply_text(
+            "بازگشت به منوی اصلی.",
+            reply_markup=build_main_menu_keyboard(user_id),
+        )
+        return
+    elif text in SERVICE_RESPONSES:
+        await update.message.reply_text(
+            SERVICE_RESPONSES[text],
+            reply_markup=SERVICE_MENU_KEYBOARD,
+        )
+        return
+    else:
+        response = CORE_MENU_RESPONSES.get(
+            text, "این بخش به زودی در دسترس قرار می‌گیرد."
+        )
+        await update.message.reply_text(
+            response,
+            reply_markup=build_main_menu_keyboard(user_id),
+        )
 
 
 async def send_webinar_content(
