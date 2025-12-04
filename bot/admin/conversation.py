@@ -873,6 +873,7 @@ async def admin_panel_drop_learning_callback(
             await show_drop_learning_menu(query, context)
             return ADMIN_PANEL_DROP_LEARNING_MENU
         
+        # Get content items for position selection - need full list here
         content_items = list(database.get_drop_learning_content(item_id))
         if not content_items:
             await query.answer("ابتدا حداقل یک محتوا اضافه کنید.", show_alert=True)
@@ -1618,9 +1619,8 @@ async def admin_drop_learning_add_content_item(
             position = flow.get("position")
             order = position
         else:
-            # Get current content count to set order (add at end)
-            content_items = list(database.get_drop_learning_content(item_id))
-            order = len(content_items)
+            # Get current content count to set order (add at end) - optimized: count directly
+            order = sum(1 for _ in database.get_drop_learning_content(item_id))
 
         database.add_drop_learning_content(item_id, file_id, file_type, order, caption=caption)
         caption_msg = " (با کپشن)" if caption else ""

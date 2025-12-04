@@ -223,26 +223,27 @@ async def handle_menu_selection(
         return
 
     if text == "وبینار ها":
-        webinars = list(database.list_webinars())
-        if not webinars:
+        # Optimized: build menu and map in single pass
+        rows: list[list[KeyboardButton]] = []
+        menu_map: dict[str, int] = {}
+        has_webinars = False
+        
+        for webinar in database.list_webinars():
+            has_webinars = True
+            title = webinar["title"] or "وبینار بدون عنوان"
+            rows.append([KeyboardButton(title)])
+            menu_map[title] = webinar["id"]
+        
+        if not has_webinars:
             await update.message.reply_text(
                 "در حال حاضر وبیناری ثبت نشده است.",
                 reply_markup=build_main_menu_keyboard(user_id),
             )
             return
 
-        titles = [webinar["title"] or "وبینار بدون عنوان" for webinar in webinars]
-        rows: list[list[KeyboardButton]] = []
-        for i in range(0, len(titles), 2):
-            chunk = [KeyboardButton(t) for t in titles[i : i + 2]]
-            rows.append(chunk)
         rows.append([KeyboardButton("بازگشت")])
-
         webinar_keyboard = ReplyKeyboardMarkup(rows, resize_keyboard=True)
-        context.user_data["webinar_menu"] = {
-            (webinar["title"] or "وبینار بدون عنوان"): webinar["id"]
-            for webinar in webinars
-        }
+        context.user_data["webinar_menu"] = menu_map
         await update.message.reply_text(
             "یکی از وبینارهای زیر را انتخاب کن:",
             reply_markup=webinar_keyboard,
@@ -250,26 +251,27 @@ async def handle_menu_selection(
         return
 
     if text == "دراپ لرنینگ":
-        items = list(database.list_drop_learning())
-        if not items:
+        # Optimized: build menu and map in single pass
+        rows: list[list[KeyboardButton]] = []
+        menu_map: dict[str, int] = {}
+        has_items = False
+        
+        for item in database.list_drop_learning():
+            has_items = True
+            title = item["title"] or "دراپ لرنینگ بدون عنوان"
+            rows.append([KeyboardButton(title)])
+            menu_map[title] = item["id"]
+        
+        if not has_items:
             await update.message.reply_text(
                 "در حال حاضر دراپ لرنینگی ثبت نشده است.",
                 reply_markup=build_main_menu_keyboard(user_id),
             )
             return
 
-        titles = [item["title"] or "دراپ لرنینگ بدون عنوان" for item in items]
-        rows: list[list[KeyboardButton]] = []
-        for i in range(0, len(titles), 2):
-            chunk = [KeyboardButton(t) for t in titles[i : i + 2]]
-            rows.append(chunk)
         rows.append([KeyboardButton("بازگشت")])
-
         drop_learning_keyboard = ReplyKeyboardMarkup(rows, resize_keyboard=True)
-        context.user_data["drop_learning_menu"] = {
-            (item["title"] or "دراپ لرنینگ بدون عنوان"): item["id"]
-            for item in items
-        }
+        context.user_data["drop_learning_menu"] = menu_map
         await update.message.reply_text(
             "یکی از دراپ لرنینگ‌های زیر را انتخاب کن:",
             reply_markup=drop_learning_keyboard,
@@ -277,26 +279,27 @@ async def handle_menu_selection(
         return
 
     if text == "Case Studies":
-        items = list(database.list_case_studies())
-        if not items:
+        # Optimized: build menu and map in single pass
+        rows: list[list[KeyboardButton]] = []
+        menu_map: dict[str, int] = {}
+        has_items = False
+        
+        for item in database.list_case_studies():
+            has_items = True
+            title = item["title"] or "کیس استادی بدون عنوان"
+            rows.append([KeyboardButton(title)])
+            menu_map[title] = item["id"]
+        
+        if not has_items:
             await update.message.reply_text(
                 "در حال حاضر کیس استادی ثبت نشده است.",
                 reply_markup=build_main_menu_keyboard(user_id),
             )
             return
 
-        titles = [item["title"] or "کیس استادی بدون عنوان" for item in items]
-        rows: list[list[KeyboardButton]] = []
-        for i in range(0, len(titles), 2):
-            chunk = [KeyboardButton(t) for t in titles[i : i + 2]]
-            rows.append(chunk)
         rows.append([KeyboardButton("بازگشت")])
-
         case_studies_keyboard = ReplyKeyboardMarkup(rows, resize_keyboard=True)
-        context.user_data["case_studies_menu"] = {
-            (item["title"] or "کیس استادی بدون عنوان"): item["id"]
-            for item in items
-        }
+        context.user_data["case_studies_menu"] = menu_map
         await update.message.reply_text(
             "یکی از کیس استادی‌های زیر را انتخاب کن:",
             reply_markup=case_studies_keyboard,
@@ -421,42 +424,27 @@ async def send_webinar_content(
     else:
         await update.message.reply_text(webinar["description"])
 
-    # Send content items
-    content_items = list(database.get_webinar_content(webinar_id))
-    for item in content_items:
+    # Send content items - optimized: iterate directly without converting to list
+    chat_id = update.effective_chat.id
+    for item in database.get_webinar_content(webinar_id):
         try:
-            if item["file_type"] == "video":
-                await context.bot.send_video(
-                    chat_id=update.effective_chat.id,
-                    video=item["file_id"],
-                )
-            elif item["file_type"] == "voice":
-                await context.bot.send_voice(
-                    chat_id=update.effective_chat.id,
-                    voice=item["file_id"],
-                )
-            elif item["file_type"] == "audio":
-                await context.bot.send_audio(
-                    chat_id=update.effective_chat.id,
-                    audio=item["file_id"],
-                )
-            elif item["file_type"] == "document":
-                await context.bot.send_document(
-                    chat_id=update.effective_chat.id,
-                    document=item["file_id"],
-                )
-            elif item["file_type"] == "photo":
-                await context.bot.send_photo(
-                    chat_id=update.effective_chat.id,
-                    photo=item["file_id"],
-                )
-            elif item["file_type"] == "video_note":
-                await context.bot.send_video_note(
-                    chat_id=update.effective_chat.id,
-                    video_note=item["file_id"],
-                )
+            file_type = item["file_type"]
+            file_id = item["file_id"]
+            
+            if file_type == "video":
+                await context.bot.send_video(chat_id=chat_id, video=file_id)
+            elif file_type == "voice":
+                await context.bot.send_voice(chat_id=chat_id, voice=file_id)
+            elif file_type == "audio":
+                await context.bot.send_audio(chat_id=chat_id, audio=file_id)
+            elif file_type == "document":
+                await context.bot.send_document(chat_id=chat_id, document=file_id)
+            elif file_type == "photo":
+                await context.bot.send_photo(chat_id=chat_id, photo=file_id)
+            elif file_type == "video_note":
+                await context.bot.send_video_note(chat_id=chat_id, video_note=file_id)
         except Exception as e:
-            logging.warning(f"Failed to send webinar content {item['id']}: {e}")
+            logging.warning(f"Failed to send webinar content {item.get('id', 'unknown')}: {e}")
             continue
 
 
@@ -477,51 +465,54 @@ async def send_drop_learning_content(
     # Send description
     await update.message.reply_text(item["description"])
 
-    # Send content items
-    content_items = list(database.get_drop_learning_content(item_id))
-    for content_item in content_items:
+    # Send content items - optimized: iterate directly without converting to list
+    chat_id = update.effective_chat.id
+    for content_item in database.get_drop_learning_content(item_id):
         try:
             caption = content_item.get("caption") or None
-            if content_item["file_type"] == "video":
+            file_type = content_item["file_type"]
+            file_id = content_item["file_id"]
+            
+            if file_type == "video":
                 await context.bot.send_video(
-                    chat_id=update.effective_chat.id,
-                    video=content_item["file_id"],
+                    chat_id=chat_id,
+                    video=file_id,
                     caption=caption,
                 )
-            elif content_item["file_type"] == "voice":
+            elif file_type == "voice":
                 await context.bot.send_voice(
-                    chat_id=update.effective_chat.id,
-                    voice=content_item["file_id"],
+                    chat_id=chat_id,
+                    voice=file_id,
                     caption=caption,
                 )
-            elif content_item["file_type"] == "audio":
+            elif file_type == "audio":
                 await context.bot.send_audio(
-                    chat_id=update.effective_chat.id,
-                    audio=content_item["file_id"],
+                    chat_id=chat_id,
+                    audio=file_id,
                     caption=caption,
                 )
-            elif content_item["file_type"] == "document":
+            elif file_type == "document":
                 await context.bot.send_document(
-                    chat_id=update.effective_chat.id,
-                    document=content_item["file_id"],
+                    chat_id=chat_id,
+                    document=file_id,
                     caption=caption,
                 )
-            elif content_item["file_type"] == "photo":
+            elif file_type == "photo":
                 await context.bot.send_photo(
-                    chat_id=update.effective_chat.id,
-                    photo=content_item["file_id"],
+                    chat_id=chat_id,
+                    photo=file_id,
                     caption=caption,
                 )
-            elif content_item["file_type"] == "video_note":
+            elif file_type == "video_note":
                 # video_note doesn't support caption
                 await context.bot.send_video_note(
-                    chat_id=update.effective_chat.id,
-                    video_note=content_item["file_id"],
+                    chat_id=chat_id,
+                    video_note=file_id,
                 )
                 if caption:
-                    await update.message.reply_text(caption)
+                    await context.bot.send_message(chat_id=chat_id, text=caption)
         except Exception as e:
-            logging.warning(f"Failed to send drop learning content {content_item['id']}: {e}")
+            logging.warning(f"Failed to send drop learning content {content_item.get('id', 'unknown')}: {e}")
             continue
 
 
@@ -552,42 +543,27 @@ async def send_case_study_content(
     else:
         await update.message.reply_text(item["description"])
 
-    # Send content items
-    content_items = list(database.get_case_study_content(item_id))
-    for content_item in content_items:
+    # Send content items - optimized: iterate directly without converting to list
+    chat_id = update.effective_chat.id
+    for content_item in database.get_case_study_content(item_id):
         try:
-            if content_item["file_type"] == "video":
-                await context.bot.send_video(
-                    chat_id=update.effective_chat.id,
-                    video=content_item["file_id"],
-                )
-            elif content_item["file_type"] == "voice":
-                await context.bot.send_voice(
-                    chat_id=update.effective_chat.id,
-                    voice=content_item["file_id"],
-                )
-            elif content_item["file_type"] == "audio":
-                await context.bot.send_audio(
-                    chat_id=update.effective_chat.id,
-                    audio=content_item["file_id"],
-                )
-            elif content_item["file_type"] == "document":
-                await context.bot.send_document(
-                    chat_id=update.effective_chat.id,
-                    document=content_item["file_id"],
-                )
-            elif content_item["file_type"] == "photo":
-                await context.bot.send_photo(
-                    chat_id=update.effective_chat.id,
-                    photo=content_item["file_id"],
-                )
-            elif content_item["file_type"] == "video_note":
-                await context.bot.send_video_note(
-                    chat_id=update.effective_chat.id,
-                    video_note=content_item["file_id"],
-                )
+            file_type = content_item["file_type"]
+            file_id = content_item["file_id"]
+            
+            if file_type == "video":
+                await context.bot.send_video(chat_id=chat_id, video=file_id)
+            elif file_type == "voice":
+                await context.bot.send_voice(chat_id=chat_id, voice=file_id)
+            elif file_type == "audio":
+                await context.bot.send_audio(chat_id=chat_id, audio=file_id)
+            elif file_type == "document":
+                await context.bot.send_document(chat_id=chat_id, document=file_id)
+            elif file_type == "photo":
+                await context.bot.send_photo(chat_id=chat_id, photo=file_id)
+            elif file_type == "video_note":
+                await context.bot.send_video_note(chat_id=chat_id, video_note=file_id)
         except Exception as e:
-            logging.warning(f"Failed to send case study content {content_item['id']}: {e}")
+            logging.warning(f"Failed to send case study content {content_item.get('id', 'unknown')}: {e}")
             continue
 
 

@@ -9,7 +9,12 @@ DB_PATH = Path(__file__).resolve().parent / "bot.sqlite3"
 
 def init_db() -> None:
     with sqlite3.connect(DB_PATH) as conn:
+        # Performance optimizations for SQLite
         conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")  # Write-Ahead Logging for better concurrency
+        conn.execute("PRAGMA synchronous = NORMAL")  # Balance between safety and speed
+        conn.execute("PRAGMA cache_size = -64000")  # 64MB cache
+        conn.execute("PRAGMA temp_store = MEMORY")  # Store temp tables in memory
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
