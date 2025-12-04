@@ -474,19 +474,8 @@ async def send_drop_learning_content(
     if user_id:
         database.record_drop_learning_view(user_id, item_id)
 
-    # Send cover photo with description if available
-    cover_photo = item.get("cover_photo_file_id")
-    if cover_photo and cover_photo.strip():
-        try:
-            await context.bot.send_photo(
-                chat_id=update.effective_chat.id,
-                photo=cover_photo,
-                caption=item["description"],
-            )
-        except Exception:
-            await update.message.reply_text(item["description"])
-    else:
-        await update.message.reply_text(item["description"])
+    # Send description
+    await update.message.reply_text(item["description"])
 
     # Send content items
     content_items = list(database.get_drop_learning_content(item_id))

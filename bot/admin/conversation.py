@@ -871,7 +871,6 @@ async def admin_panel_drop_learning_callback(
         flow = context.user_data.get("drop_learning_flow") or {}
         title = flow.get("title")
         description = flow.get("description")
-        cover_photo_file_id = flow.get("cover_photo_file_id")
         content_items = flow.get("content_items", [])
         
         if not title or not description:
@@ -880,7 +879,7 @@ async def admin_panel_drop_learning_callback(
         
         # Create drop learning
         item_id = database.create_drop_learning(
-            title, description, cover_photo_file_id
+            title, description
         )
         
         # Add content items
@@ -1364,39 +1363,6 @@ async def admin_drop_learning_add_description(
         return ADMIN_PANEL_DROP_LEARNING_ADD_DESCRIPTION
 
     flow["description"] = description
-    context.user_data["drop_learning_flow"] = flow
-    await update.message.reply_text(
-        "عکس کاور دراپ لرنینگ را ارسال کنید (یا /skip برای رد کردن).",
-        reply_markup=DROP_LEARNING_CANCEL_MARKUP,
-    )
-    return ADMIN_PANEL_DROP_LEARNING_ADD_COVER
-
-
-async def admin_drop_learning_add_cover(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> int:
-    if not await ensure_channel_membership(update, context):
-        return ConversationHandler.END
-    if not await ensure_registered_user(update, context):
-        return ConversationHandler.END
-    if not is_admin_user(update.effective_user.id):
-        await update.message.reply_text("دسترسی شما قطع شده است.")
-        return ConversationHandler.END
-
-    flow = context.user_data.get("drop_learning_flow") or {}
-    
-    if update.message.text and update.message.text.strip() == "/skip":
-        flow["cover_photo_file_id"] = None
-    elif update.message.photo:
-        photo = update.message.photo[-1]
-        flow["cover_photo_file_id"] = photo.file_id
-    else:
-        await update.message.reply_text(
-            "لطفاً یک عکس ارسال کنید یا /skip را بزنید.",
-            reply_markup=DROP_LEARNING_CANCEL_MARKUP,
-        )
-        return ADMIN_PANEL_DROP_LEARNING_ADD_COVER
-
     context.user_data["drop_learning_flow"] = flow
     await update.message.reply_text(
         "محتوای دراپ لرنینگ را ارسال کنید (ویدیو، وویس، فایل و...).\n"

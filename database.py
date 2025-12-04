@@ -73,10 +73,12 @@ def init_db() -> None:
                 file_id TEXT NOT NULL,
                 file_type TEXT NOT NULL,
                 content_order INTEGER DEFAULT 0,
+                caption TEXT,
                 FOREIGN KEY (drop_learning_id) REFERENCES drop_learning (id) ON DELETE CASCADE
             )
             """
         )
+        _ensure_drop_learning_content_schema(conn)
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS case_studies (
@@ -251,6 +253,21 @@ def _ensure_webinars_schema(conn: sqlite3.Connection) -> None:
         """)
         conn.execute("DROP TABLE webinars")
         conn.execute("ALTER TABLE webinars_new RENAME TO webinars")
+
+
+def _ensure_drop_learning_content_schema(conn: sqlite3.Connection) -> None:
+    """Ensure drop_learning_content table has caption column."""
+    columns = {
+        row[1]: {"type": row[2], "notnull": row[3], "default": row[4]}
+        for row in conn.execute("PRAGMA table_info(drop_learning_content)")
+    }
+    if "caption" not in columns:
+        conn.execute(
+            """
+            ALTER TABLE drop_learning_content
+            ADD COLUMN caption TEXT
+            """
+        )
 
 
 def upsert_user(
@@ -689,7 +706,6 @@ def get_drop_learning(item_id: int) -> Optional[Dict[str, str]]:
 def create_drop_learning(
     title: str,
     description: str,
-    cover_photo_file_id: Optional[str] = None,
 ) -> int:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
@@ -697,7 +713,7 @@ def create_drop_learning(
             INSERT INTO drop_learning (title, description, cover_photo_file_id)
             VALUES (?, ?, ?)
             """,
-            (title, description, cover_photo_file_id),
+            (title, description, None),
         )
         return cursor.lastrowid
 
@@ -745,14 +761,14 @@ def delete_drop_learning(item_id: int) -> bool:
         return cursor.rowcount > 0
 
 
-def add_drop_learning_content(item_id: int, file_id: str, file_type: str, content_order: int = 0) -> int:
+def add_drop_learning_content(item_id: int, file_id: str, file_type: str, content_order: int = 0, caption: Optional[str] = None) -> int:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
             """
-            INSERT INTO drop_learning_content (drop_learning_id, file_id, file_type, content_order)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO drop_learning_content (drop_learning_id, file_id, file_type, content_order, caption)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (item_id, file_id, file_type, content_order),
+            (item_id, file_id, file_type, content_order, caption),
         )
         return cursor.lastrowid
 
@@ -761,19 +777,20 @@ def get_drop_learning_content(item_id: int) -> Iterable[Dict[str, str]]:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
             """
-            SELECT id, file_id, file_type, content_order
+            SELECT id, file_id, file_type, content_order, caption
             FROM drop_learning_content
             WHERE drop_learning_id = ?
             ORDER BY content_order ASC, id ASC
             """,
             (item_id,),
         )
-        for content_id, file_id, file_type, content_order in cursor.fetchall():
+        for content_id, file_id, file_type, content_order, caption in cursor.fetchall():
             yield {
                 "id": content_id,
                 "file_id": file_id,
                 "file_type": file_type,
                 "content_order": content_order,
+                "caption": caption or "",
             }
 
 
@@ -782,7 +799,7 @@ def get_drop_learning_content_item(content_id: int) -> Optional[Dict[str, str]]:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
             """
-            SELECT id, drop_learning_id, file_id, file_type, content_order
+            SELECT id, drop_learning_id, file_id, file_type, content_order, caption
             FROM drop_learning_content
             WHERE id = ?
             """,
@@ -797,6 +814,7 @@ def get_drop_learning_content_item(content_id: int) -> Optional[Dict[str, str]]:
         "file_id": row[2],
         "file_type": row[3],
         "content_order": row[4],
+        "caption": row[5] or "" if len(row) > 5 else "",
     }
 
 
