@@ -1569,7 +1569,7 @@ async def admin_drop_learning_add_content_item(
         # Get current content count to set order
         content_items = list(database.get_drop_learning_content(item_id))
         order = len(content_items)
-        
+
         database.add_drop_learning_content(item_id, file_id, file_type, order)
         await update.message.reply_text("محتوا با موفقیت اضافه شد ✅")
         # Return to manage content state - user can add more or go back
