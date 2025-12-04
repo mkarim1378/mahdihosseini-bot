@@ -1571,16 +1571,16 @@ async def admin_drop_learning_add_content_item(
         order = len(content_items)
         
         database.add_drop_learning_content(item_id, file_id, file_type, order)
-            await update.message.reply_text("محتوا با موفقیت اضافه شد ✅")
-            # Return to manage content state - user can add more or go back
-            await update.message.reply_text(
-                "می‌توانید محتوای دیگری اضافه کنید یا به مدیریت محتوا بازگردید.",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("بازگشت به مدیریت محتوا", callback_data="drop_learning:manage_content")],
-                    [InlineKeyboardButton("انصراف 🔙", callback_data="drop_learning:menu")]
-                ])
-            )
-            return ADMIN_PANEL_DROP_LEARNING_MANAGE_CONTENT
+        await update.message.reply_text("محتوا با موفقیت اضافه شد ✅")
+        # Return to manage content state - user can add more or go back
+        await update.message.reply_text(
+            "می‌توانید محتوای دیگری اضافه کنید یا به مدیریت محتوا بازگردید.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("بازگشت به مدیریت محتوا", callback_data="drop_learning:manage_content")],
+                [InlineKeyboardButton("انصراف 🔙", callback_data="drop_learning:menu")]
+            ])
+        )
+        return ADMIN_PANEL_DROP_LEARNING_MANAGE_CONTENT
     else:
         await update.message.reply_text(
             "لطفاً یک فایل (ویدیو، وویس، فایل و...) ارسال کنید.",
