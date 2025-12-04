@@ -69,6 +69,7 @@ from ..keyboards import (
     admin_main_reply_keyboard,
     admin_manage_keyboard,
     admin_settings_keyboard,
+    admin_stats_keyboard,
     consultation_settings_keyboard,
 )
 from ..menu import send_main_menu
@@ -152,7 +153,10 @@ async def admin_panel_main_message(
             f"- بازدیدکنندگان دراپ لرنینگ: {stats.get('drop_learning_viewers', 0)}",
             f"- بازدیدکنندگان کیس استادی: {stats.get('case_studies_viewers', 0)}",
         ]
-        await update.message.reply_text("\n".join(lines))
+        await update.message.reply_text(
+            "\n".join(lines),
+            reply_markup=admin_stats_keyboard(),
+        )
         return ADMIN_PANEL_MAIN
 
     if text == "مدیریت وبینارها 🎥":
@@ -225,11 +229,7 @@ async def admin_panel_main_callback(
                 f"- بازدیدکنندگان کیس استادی: {stats.get('case_studies_viewers', 0)}",
             ]
         )
-        await query.edit_message_text(text)
-        await query.message.reply_text(
-            "به پنل ادمین خوش آمدید. یکی از گزینه‌ها را انتخاب کنید:",
-            reply_markup=admin_main_reply_keyboard(),
-        )
+        await query.edit_message_text(text, reply_markup=admin_stats_keyboard())
         return ADMIN_PANEL_MAIN
 
     if data == "panel:webinars":
@@ -240,6 +240,131 @@ async def admin_panel_main_callback(
         await query.edit_message_text("بازگشت به ربات.")
         await send_main_menu(update, context)
         return ConversationHandler.END
+
+    if data.startswith("stats:"):
+        return await admin_panel_stats_callback(update, context)
+
+    if data.startswith("stats:"):
+        return await admin_panel_stats_callback(update, context)
+
+    await query.answer("گزینه نامعتبر است.", show_alert=True)
+    return ADMIN_PANEL_MAIN
+
+
+async def admin_panel_stats_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Handle statistics menu callbacks."""
+    query = update.callback_query
+    await query.answer()
+
+    if not await ensure_private_chat(update, context):
+        return ConversationHandler.END
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
+    user = update.effective_user
+    if not user or not is_admin_user(user.id):
+        await query.edit_message_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    data = query.data
+
+    if data == "stats:back":
+        stats = database.get_user_stats()
+        text = "\n".join(
+            [
+                "آمار ربات:",
+                "",
+                "👥 کاربران:",
+                f"- کل کاربران: {stats['total']}",
+                f"- کاربران با شماره موبایل: {stats['with_phone']}",
+                f"- کاربران بدون شماره موبایل: {stats['without_phone']}",
+                "",
+                "📊 آمار بخش‌ها:",
+                f"- بازدیدکنندگان وبینارها: {stats.get('webinar_viewers', 0)}",
+                f"- بازدیدکنندگان دراپ لرنینگ: {stats.get('drop_learning_viewers', 0)}",
+                f"- بازدیدکنندگان کیس استادی: {stats.get('case_studies_viewers', 0)}",
+            ]
+        )
+        await query.edit_message_text(text, reply_markup=admin_stats_keyboard())
+        return ADMIN_PANEL_MAIN
+
+    if data == "stats:download_users":
+        import csv
+        import io
+        from datetime import datetime
+
+        # Create CSV in memory
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Write header
+        writer.writerow([
+            "شناسه تلگرام",
+            "شماره موبایل",
+            "نام",
+            "نام خانوادگی",
+            "یوزرنیم",
+            "وضعیت ادمین",
+        ])
+        
+        # Write user data
+        admin_ids = set()
+        for admin in database.list_admins():
+            admin_ids.add(admin["telegram_id"])
+        
+        for user in database.iter_users():
+            is_admin = "بله" if user["telegram_id"] in admin_ids else "خیر"
+            writer.writerow([
+                user["telegram_id"],
+                user["phone_number"] or "",
+                user["fname"] or "",
+                user["lname"] or "",
+                user["username"] or "",
+                is_admin,
+            ])
+        
+        # Get CSV content
+        csv_content = output.getvalue()
+        output.close()
+        
+        # Create file-like object for sending
+        csv_bytes = io.BytesIO(csv_content.encode('utf-8-sig'))  # UTF-8 BOM for Excel
+        csv_bytes.name = f"users_list_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        
+        try:
+            await query.edit_message_text("در حال آماده‌سازی فایل...")
+            await context.bot.send_document(
+                chat_id=query.from_user.id,
+                document=csv_bytes,
+                filename=csv_bytes.name,
+                caption=f"📥 لیست کاربران\n\nتعداد: {database.get_user_stats()['total']} کاربر",
+            )
+            await query.answer("فایل با موفقیت ارسال شد ✅", show_alert=True)
+            # Show stats again with keyboard
+            stats = database.get_user_stats()
+            text = "\n".join(
+                [
+                    "آمار ربات:",
+                    "",
+                    "👥 کاربران:",
+                    f"- کل کاربران: {stats['total']}",
+                    f"- کاربران با شماره موبایل: {stats['with_phone']}",
+                    f"- کاربران بدون شماره موبایل: {stats['without_phone']}",
+                    "",
+                    "📊 آمار بخش‌ها:",
+                    f"- بازدیدکنندگان وبینارها: {stats.get('webinar_viewers', 0)}",
+                    f"- بازدیدکنندگان دراپ لرنینگ: {stats.get('drop_learning_viewers', 0)}",
+                    f"- بازدیدکنندگان کیس استادی: {stats.get('case_studies_viewers', 0)}",
+                ]
+            )
+            await query.message.edit_text(text, reply_markup=admin_stats_keyboard())
+        except Exception as e:
+            logging.error(f"Failed to send users CSV: {e}")
+            await query.answer("خطا در ارسال فایل ❌", show_alert=True)
+        
+        return ADMIN_PANEL_MAIN
 
     await query.answer("گزینه نامعتبر است.", show_alert=True)
     return ADMIN_PANEL_MAIN
@@ -2974,6 +3099,7 @@ def create_admin_conversation() -> ConversationHandler:
                     private_text & ~filters.COMMAND, admin_panel_main_message
                 ),
                 CallbackQueryHandler(admin_panel_main_callback, pattern="^panel:"),
+                CallbackQueryHandler(admin_panel_stats_callback, pattern="^stats:"),
             ],
             ADMIN_PANEL_SETTINGS: [
                 CallbackQueryHandler(admin_panel_settings_callback, pattern="^settings:"),

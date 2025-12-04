@@ -15,6 +15,20 @@ from telegram import (
 from telegram.ext import ContextTypes
 
 import database
+
+
+def format_amount(amount_str: str) -> str:
+    """Format amount string with comma separators (every 3 digits)."""
+    try:
+        # Remove any non-digit characters
+        digits_only = ''.join(filter(str.isdigit, amount_str))
+        # Reverse, chunk by 3, join with comma, reverse back
+        reversed_digits = digits_only[::-1]
+        chunks = [reversed_digits[i:i+3] for i in range(0, len(reversed_digits), 3)]
+        formatted = ','.join(chunks)[::-1]
+        return formatted
+    except Exception:
+        return amount_str
 from .constants import (
     CORE_MENU_BUTTONS,
     CORE_MENU_RESPONSES,

@@ -87,6 +87,24 @@ def admin_main_reply_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(rows, resize_keyboard=True)
 
 
+def admin_stats_keyboard() -> InlineKeyboardMarkup:
+    """Keyboard for statistics menu."""
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "📥 دانلود لیست کاربران", callback_data="stats:download_users"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "بازگشت 🔙", callback_data="stats:back"
+                )
+            ],
+        ]
+    )
+
+
 def admin_settings_keyboard(require_phone: bool) -> InlineKeyboardMarkup:
     toggle_label = (
         "اجبار شماره موبایل: روشن ✅" if require_phone else "اجبار شماره موبایل: خاموش ❌"
@@ -254,6 +272,7 @@ __all__ = [
     "admin_main_keyboard",
     "admin_main_reply_keyboard",
     "admin_settings_keyboard",
+    "admin_stats_keyboard",
     "admin_manage_keyboard",
     "admin_add_cancel_keyboard",
     "admin_broadcast_keyboard",
