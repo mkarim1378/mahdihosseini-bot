@@ -14,8 +14,9 @@ This project implements a Telegram bot that onboards users through a private cha
     -   Ensures a `users` row exists for every contact (`database.ensure_user_record`).
     -   Optional mobile requirement (default set via `REQUIRE_PHONE_DEFAULT`, runtime toggle in admin UI). Phone numbers are normalized to the last 10 digits before persistence.
 -   **Core menu**
-    -   Dynamic webinar catalogue: selecting “وبینار ها” streams every published webinar with its description and an inline registration button.
-    -   Static placeholders for case studies, drop learning, and services with localized responses (`bot/menu.py`).
+    -   Dynamic webinar catalogue: selecting "وبینار ها" streams every published webinar with its description and an inline registration button.
+    -   Drop learning: users can browse and select drop learning items, which display the cover photo with description and associated content (videos, audio, documents, etc.).
+    -   Static placeholders for case studies and services with localized responses (`bot/menu.py`).
     -   Service submenu (`SERVICE_MENU_KEYBOARD`) and fallback messaging for upcoming sections.
 -   **Admin panel (conversation handler in `bot/admin/conversation.py`)**
     -   Stats dashboard: total users, with phone, without phone.
@@ -79,7 +80,7 @@ Key runtime invariants:
 
 3. **Database**
     - On first run `database.init_db()` creates/patches `bot.sqlite3` in the project root.
-    - Schemas: `users(telegram_id, phone_number, fname, lname, username)`, `admins(telegram_id)` with cascading deletes, and `webinars(id, description, registration_link, created_at)`.
+    - Schemas: `users(telegram_id, phone_number, fname, lname, username)`, `admins(telegram_id)` with cascading deletes, `webinars(id, description, registration_link, created_at)`, `drop_learning(id, title, description, cover_photo_file_id, created_at)`, and `drop_learning_content(id, drop_learning_id, file_id, file_type, content_order)`.
 
 ## Running the Bot
 
@@ -96,10 +97,15 @@ The bot starts polling with `allowed_updates=["message", "callback_query"]` and 
 -   **Remove admin**: select a user from the inline list; temporary admins are protected from removal.
 -   **Broadcast**: pick a cohort, send a plain-text message, receive delivery stats (success/failure counts).
 -   **Toggle phone requirement**: switches the onboarding guard in real time without service restarts.
--   **Manage webinars**:
+    -   **Manage webinars**:
     -   From _مدیریت وبینارها 🎥_ view the catalog; each webinar appears as a physical button.
     -   _➕ افزودن وبینار_ prompts for a description followed by a registration URL.
     -   Selecting an existing webinar exposes inline actions to edit the description, update the link, or remove the entry entirely.
+    -   **Manage drop learning**:
+    -   From _مدیریت دراپ لرنینگ 📚_ view the catalog; each item appears as a button.
+    -   _➕ افزودن دراپ لرنینگ_ prompts for title, description, optional cover photo, and content items (videos, audio, documents, photos, etc.).
+    -   Selecting an existing drop learning item allows editing the title, description, and managing content items.
+    -   Content management: view all content items, add new items, edit (replace) individual items, or delete items without recreating the entire drop learning entry.
 
 ## Development Notes
 
