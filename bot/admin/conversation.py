@@ -38,6 +38,9 @@ from ..constants import (
     ADMIN_PANEL_DROP_LEARNING_ADD_CONTENT,
     ADMIN_PANEL_DROP_LEARNING_EDIT_TITLE,
     ADMIN_PANEL_DROP_LEARNING_EDIT_DESCRIPTION,
+    ADMIN_PANEL_DROP_LEARNING_MANAGE_CONTENT,
+    ADMIN_PANEL_DROP_LEARNING_ADD_CONTENT_ITEM,
+    ADMIN_PANEL_DROP_LEARNING_EDIT_CONTENT_ITEM,
     ADMIN_PANEL_CASE_STUDIES_MENU,
     ADMIN_PANEL_CASE_STUDIES_ADD_TITLE,
     ADMIN_PANEL_CASE_STUDIES_ADD_DESCRIPTION,
@@ -727,6 +730,8 @@ async def admin_panel_drop_learning_callback(
 
     if data == "drop_learning:menu":
         context.user_data.pop("drop_learning_flow", None)
+        # Reset selected item when going back to menu
+        context.user_data.pop("drop_learning_selected", None)
         await show_drop_learning_menu(query, context)
         return ADMIN_PANEL_DROP_LEARNING_MENU
 
@@ -782,6 +787,15 @@ async def admin_panel_drop_learning_callback(
         )
         return ADMIN_PANEL_DROP_LEARNING_EDIT_DESCRIPTION
 
+    if data == "drop_learning:manage_content":
+        item_id = context.user_data.get("drop_learning_selected")
+        if not item_id:
+            await query.answer("ابتدا دراپ لرنینگ را انتخاب کنید.", show_alert=True)
+            await show_drop_learning_menu(query, context)
+            return ADMIN_PANEL_DROP_LEARNING_MENU
+        await show_drop_learning_content_list(query, context, item_id)
+        return ADMIN_PANEL_DROP_LEARNING_MANAGE_CONTENT
+
     if data == "drop_learning:delete":
         item_id = context.user_data.get("drop_learning_selected")
         if not item_id:
@@ -797,6 +811,61 @@ async def admin_panel_drop_learning_callback(
                 query, context, status="حذف دراپ لرنینگ با خطا مواجه شد."
             )
         return ADMIN_PANEL_DROP_LEARNING_MENU
+
+    if data.startswith("drop_learning:content:add"):
+        item_id = context.user_data.get("drop_learning_selected")
+        if not item_id:
+            await query.answer("ابتدا دراپ لرنینگ را انتخاب کنید.", show_alert=True)
+            await show_drop_learning_menu(query, context)
+            return ADMIN_PANEL_DROP_LEARNING_MENU
+        context.user_data["drop_learning_flow"] = {"item_id": item_id, "mode": "add_content"}
+        await query.edit_message_text(
+            "محتوای جدید را ارسال کنید (ویدیو، وویس، فایل و...).",
+            reply_markup=DROP_LEARNING_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_DROP_LEARNING_ADD_CONTENT_ITEM
+
+    if data.startswith("drop_learning:content:edit:"):
+        try:
+            content_id = int(data.split(":", maxsplit=3)[3])
+        except (IndexError, ValueError):
+            await query.answer("گزینه نامعتبر است.", show_alert=True)
+            return ADMIN_PANEL_DROP_LEARNING_MANAGE_CONTENT
+        
+        content_item = database.get_drop_learning_content_item(content_id)
+        if not content_item:
+            await query.answer("این محتوا وجود ندارد.", show_alert=True)
+            item_id = context.user_data.get("drop_learning_selected")
+            if item_id:
+                await show_drop_learning_content_list(query, context, item_id)
+            return ADMIN_PANEL_DROP_LEARNING_MANAGE_CONTENT
+        
+        context.user_data["drop_learning_flow"] = {
+            "item_id": content_item["drop_learning_id"],
+            "content_id": content_id,
+            "mode": "edit_content"
+        }
+        await query.edit_message_text(
+            "محتوای جدید را برای جایگزینی ارسال کنید (ویدیو، وویس، فایل و...).",
+            reply_markup=DROP_LEARNING_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_DROP_LEARNING_EDIT_CONTENT_ITEM
+
+    if data.startswith("drop_learning:content:delete:"):
+        try:
+            content_id = int(data.split(":", maxsplit=3)[3])
+        except (IndexError, ValueError):
+            await query.answer("گزینه نامعتبر است.", show_alert=True)
+            return ADMIN_PANEL_DROP_LEARNING_MANAGE_CONTENT
+        
+        item_id = context.user_data.get("drop_learning_selected")
+        if database.delete_drop_learning_content(content_id):
+            await query.answer("محتوا حذف شد ✅", show_alert=False)
+            if item_id:
+                await show_drop_learning_content_list(query, context, item_id)
+        else:
+            await query.answer("حذف محتوا با خطا مواجه شد.", show_alert=True)
+        return ADMIN_PANEL_DROP_LEARNING_MANAGE_CONTENT
 
     if data == "drop_learning:finish":
         flow = context.user_data.get("drop_learning_flow") or {}
@@ -1452,6 +1521,142 @@ async def admin_drop_learning_edit_title(
             reply_markup=DROP_LEARNING_CANCEL_MARKUP,
         )
         return ADMIN_PANEL_DROP_LEARNING_EDIT_TITLE
+
+
+async def admin_drop_learning_add_content_item(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Add a new content item to existing drop learning."""
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+    if not await ensure_registered_user(update, context):
+        return ConversationHandler.END
+    if not is_admin_user(update.effective_user.id):
+        await update.message.reply_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    flow = context.user_data.get("drop_learning_flow") or {}
+    item_id = flow.get("item_id")
+    
+    if not item_id:
+        await update.message.reply_text("خطا در شناسایی دراپ لرنینگ.")
+        await show_drop_learning_menu(update.effective_chat.id, context)
+        return ADMIN_PANEL_DROP_LEARNING_MENU
+    
+    file_id = None
+    file_type = None
+    
+    if update.message.video:
+        file_id = update.message.video.file_id
+        file_type = "video"
+    elif update.message.voice:
+        file_id = update.message.voice.file_id
+        file_type = "voice"
+    elif update.message.audio:
+        file_id = update.message.audio.file_id
+        file_type = "audio"
+    elif update.message.document:
+        file_id = update.message.document.file_id
+        file_type = "document"
+    elif update.message.photo:
+        file_id = update.message.photo[-1].file_id
+        file_type = "photo"
+    elif update.message.video_note:
+        file_id = update.message.video_note.file_id
+        file_type = "video_note"
+    
+    if file_id and file_type:
+        # Get current content count to set order
+        content_items = list(database.get_drop_learning_content(item_id))
+        order = len(content_items)
+        
+        database.add_drop_learning_content(item_id, file_id, file_type, order)
+            await update.message.reply_text("محتوا با موفقیت اضافه شد ✅")
+            # Return to manage content state - user can add more or go back
+            await update.message.reply_text(
+                "می‌توانید محتوای دیگری اضافه کنید یا به مدیریت محتوا بازگردید.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("بازگشت به مدیریت محتوا", callback_data="drop_learning:manage_content")],
+                    [InlineKeyboardButton("انصراف 🔙", callback_data="drop_learning:menu")]
+                ])
+            )
+            return ADMIN_PANEL_DROP_LEARNING_MANAGE_CONTENT
+    else:
+        await update.message.reply_text(
+            "لطفاً یک فایل (ویدیو، وویس، فایل و...) ارسال کنید.",
+            reply_markup=DROP_LEARNING_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_DROP_LEARNING_ADD_CONTENT_ITEM
+
+
+async def admin_drop_learning_edit_content_item(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Edit (replace) an existing content item."""
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+    if not await ensure_registered_user(update, context):
+        return ConversationHandler.END
+    if not is_admin_user(update.effective_user.id):
+        await update.message.reply_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    flow = context.user_data.get("drop_learning_flow") or {}
+    content_id = flow.get("content_id")
+    item_id = flow.get("item_id")
+    
+    if not content_id or not item_id:
+        await update.message.reply_text("خطا در شناسایی محتوا.")
+        await show_drop_learning_menu(update.effective_chat.id, context)
+        return ADMIN_PANEL_DROP_LEARNING_MENU
+    
+    file_id = None
+    file_type = None
+    
+    if update.message.video:
+        file_id = update.message.video.file_id
+        file_type = "video"
+    elif update.message.voice:
+        file_id = update.message.voice.file_id
+        file_type = "voice"
+    elif update.message.audio:
+        file_id = update.message.audio.file_id
+        file_type = "audio"
+    elif update.message.document:
+        file_id = update.message.document.file_id
+        file_type = "document"
+    elif update.message.photo:
+        file_id = update.message.photo[-1].file_id
+        file_type = "photo"
+    elif update.message.video_note:
+        file_id = update.message.video_note.file_id
+        file_type = "video_note"
+    
+    if file_id and file_type:
+        if database.update_drop_learning_content(content_id, file_id, file_type):
+            await update.message.reply_text("محتوا با موفقیت به‌روزرسانی شد ✅")
+            context.user_data.pop("drop_learning_flow", None)
+            # Return to manage content - user can continue managing or go back
+            await update.message.reply_text(
+                "برای مشاهده لیست محتواها، دکمه زیر را بزنید.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("بازگشت به مدیریت محتوا", callback_data="drop_learning:manage_content")],
+                    [InlineKeyboardButton("انصراف 🔙", callback_data="drop_learning:menu")]
+                ])
+            )
+            return ADMIN_PANEL_DROP_LEARNING_MANAGE_CONTENT
+        else:
+            await update.message.reply_text(
+                "خطا در به‌روزرسانی محتوا.",
+                reply_markup=DROP_LEARNING_CANCEL_MARKUP,
+            )
+            return ADMIN_PANEL_DROP_LEARNING_EDIT_CONTENT_ITEM
+    else:
+        await update.message.reply_text(
+            "لطفاً یک فایل (ویدیو، وویس، فایل و...) ارسال کنید.",
+            reply_markup=DROP_LEARNING_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_DROP_LEARNING_EDIT_CONTENT_ITEM
 
     database.update_drop_learning(item_id, title=title)
     context.user_data.pop("drop_learning_flow", None)
@@ -2220,11 +2425,81 @@ async def show_selected_drop_learning(
         [
             [InlineKeyboardButton("ویرایش عنوان 🏷️", callback_data="drop_learning:edit_title")],
             [InlineKeyboardButton("ویرایش توضیحات 📝", callback_data="drop_learning:edit_desc")],
+            [InlineKeyboardButton("مدیریت محتوا 📎", callback_data="drop_learning:manage_content")],
             [InlineKeyboardButton("حذف دراپ لرنینگ 🗑️", callback_data="drop_learning:delete")],
             [InlineKeyboardButton("بازگشت 🔙", callback_data="drop_learning:menu")],
         ]
     )
     await query.edit_message_text(text, reply_markup=keyboard)
+
+
+async def show_drop_learning_content_list(
+    query, context: ContextTypes.DEFAULT_TYPE, item_id: int, status: str | None = None
+) -> None:
+    """Show list of content items for a drop learning."""
+    item = database.get_drop_learning(item_id)
+    if not item:
+        await query.answer("این دراپ لرنینگ وجود ندارد.", show_alert=True)
+        await show_drop_learning_menu(query, context)
+        return
+
+    content_items = list(database.get_drop_learning_content(item_id))
+    
+    text_parts = []
+    if status:
+        text_parts.append(status)
+        text_parts.append("")
+    text_parts.append("مدیریت محتوای دراپ لرنینگ:")
+    text_parts.append(f"عنوان: {item['title'] or 'دراپ لرنینگ بدون عنوان'}")
+    text_parts.append("")
+    
+    if content_items:
+        text_parts.append(f"تعداد محتوا: {len(content_items)}")
+        text_parts.append("")
+        for idx, content_item in enumerate(content_items, 1):
+            file_type_labels = {
+                "video": "ویدیو",
+                "voice": "صدا",
+                "audio": "آهنگ",
+                "document": "فایل",
+                "photo": "عکس",
+                "video_note": "ویدیو نوت",
+            }
+            file_type_label = file_type_labels.get(content_item["file_type"], content_item["file_type"])
+            text_parts.append(f"{idx}. {file_type_label}")
+    else:
+        text_parts.append("هیچ محتوایی ثبت نشده است.")
+    
+    text = "\n".join(text_parts)
+
+    keyboard = []
+    keyboard.append([InlineKeyboardButton("➕ افزودن محتوا", callback_data="drop_learning:content:add")])
+    
+    if content_items:
+        for content_item in content_items:
+            file_type_labels = {
+                "video": "📹",
+                "voice": "🎤",
+                "audio": "🎵",
+                "document": "📄",
+                "photo": "🖼️",
+                "video_note": "📹",
+            }
+            icon = file_type_labels.get(content_item["file_type"], "📎")
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"{icon} ویرایش",
+                    callback_data=f"drop_learning:content:edit:{content_item['id']}"
+                ),
+                InlineKeyboardButton(
+                    "🗑️ حذف",
+                    callback_data=f"drop_learning:content:delete:{content_item['id']}"
+                ),
+            ])
+    
+    keyboard.append([InlineKeyboardButton("بازگشت 🔙", callback_data="drop_learning:menu")])
+    
+    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 # Case Studies functions (similar to webinar functions)
@@ -2427,6 +2702,23 @@ def create_admin_conversation() -> ConversationHandler:
             ADMIN_PANEL_DROP_LEARNING_EDIT_DESCRIPTION: [
                 MessageHandler(
                     private_text & ~filters.COMMAND, admin_drop_learning_edit_description
+                ),
+                CallbackQueryHandler(admin_panel_drop_learning_callback, pattern="^drop_learning:"),
+            ],
+            ADMIN_PANEL_DROP_LEARNING_MANAGE_CONTENT: [
+                CallbackQueryHandler(admin_panel_drop_learning_callback, pattern="^drop_learning:"),
+            ],
+            ADMIN_PANEL_DROP_LEARNING_ADD_CONTENT_ITEM: [
+                MessageHandler(
+                    filters.VIDEO | filters.VOICE | filters.AUDIO | filters.Document.ALL | filters.PHOTO | filters.VIDEO_NOTE,
+                    admin_drop_learning_add_content_item
+                ),
+                CallbackQueryHandler(admin_panel_drop_learning_callback, pattern="^drop_learning:"),
+            ],
+            ADMIN_PANEL_DROP_LEARNING_EDIT_CONTENT_ITEM: [
+                MessageHandler(
+                    filters.VIDEO | filters.VOICE | filters.AUDIO | filters.Document.ALL | filters.PHOTO | filters.VIDEO_NOTE,
+                    admin_drop_learning_edit_content_item
                 ),
                 CallbackQueryHandler(admin_panel_drop_learning_callback, pattern="^drop_learning:"),
             ],

@@ -777,6 +777,55 @@ def get_drop_learning_content(item_id: int) -> Iterable[Dict[str, str]]:
             }
 
 
+def get_drop_learning_content_item(content_id: int) -> Optional[Dict[str, str]]:
+    """Get a single drop learning content item by its ID."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            """
+            SELECT id, drop_learning_id, file_id, file_type, content_order
+            FROM drop_learning_content
+            WHERE id = ?
+            """,
+            (content_id,),
+        )
+        row = cursor.fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row[0],
+        "drop_learning_id": row[1],
+        "file_id": row[2],
+        "file_type": row[3],
+        "content_order": row[4],
+    }
+
+
+def update_drop_learning_content(
+    content_id: int, file_id: str, file_type: str
+) -> bool:
+    """Update a drop learning content item (replace file)."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            """
+            UPDATE drop_learning_content
+            SET file_id = ?, file_type = ?
+            WHERE id = ?
+            """,
+            (file_id, file_type, content_id),
+        )
+        return cursor.rowcount > 0
+
+
+def delete_drop_learning_content(content_id: int) -> bool:
+    """Delete a drop learning content item."""
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            "DELETE FROM drop_learning_content WHERE id = ?",
+            (content_id,),
+        )
+        return cursor.rowcount > 0
+
+
 # Case Studies functions
 def list_case_studies() -> Iterable[Dict[str, str]]:
     with sqlite3.connect(DB_PATH) as conn:

@@ -474,12 +474,13 @@ async def send_drop_learning_content(
     if user_id:
         database.record_drop_learning_view(user_id, item_id)
 
-    # Send cover photo if available
-    if item.get("cover_photo_file_id"):
+    # Send cover photo with description if available
+    cover_photo = item.get("cover_photo_file_id")
+    if cover_photo and cover_photo.strip():
         try:
             await context.bot.send_photo(
                 chat_id=update.effective_chat.id,
-                photo=item["cover_photo_file_id"],
+                photo=cover_photo,
                 caption=item["description"],
             )
         except Exception:
