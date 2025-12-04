@@ -34,7 +34,6 @@ from ..constants import (
     ADMIN_PANEL_DROP_LEARNING_MENU,
     ADMIN_PANEL_DROP_LEARNING_ADD_TITLE,
     ADMIN_PANEL_DROP_LEARNING_ADD_DESCRIPTION,
-    ADMIN_PANEL_DROP_LEARNING_ADD_COVER,
     ADMIN_PANEL_DROP_LEARNING_ADD_CONTENT,
     ADMIN_PANEL_DROP_LEARNING_EDIT_TITLE,
     ADMIN_PANEL_DROP_LEARNING_EDIT_DESCRIPTION,
@@ -2743,13 +2742,6 @@ def create_admin_conversation() -> ConversationHandler:
             ADMIN_PANEL_DROP_LEARNING_ADD_DESCRIPTION: [
                 MessageHandler(
                     private_text & ~filters.COMMAND, admin_drop_learning_add_description
-                ),
-                CallbackQueryHandler(admin_panel_drop_learning_callback, pattern="^drop_learning:"),
-            ],
-            ADMIN_PANEL_DROP_LEARNING_ADD_COVER: [
-                MessageHandler(
-                    filters.PHOTO | (filters.TEXT & filters.Regex("^/skip$")),
-                    admin_drop_learning_add_cover
                 ),
                 CallbackQueryHandler(admin_panel_drop_learning_callback, pattern="^drop_learning:"),
             ],
