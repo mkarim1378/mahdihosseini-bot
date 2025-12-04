@@ -153,6 +153,15 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS bot_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+        _ensure_bot_settings_defaults(conn)
 
 
 def _ensure_users_schema(conn: sqlite3.Connection) -> None:
@@ -258,6 +267,51 @@ def _ensure_webinars_schema(conn: sqlite3.Connection) -> None:
         """)
         conn.execute("DROP TABLE webinars")
         conn.execute("ALTER TABLE webinars_new RENAME TO webinars")
+
+
+def _ensure_bot_settings_defaults(conn: sqlite3.Connection) -> None:
+    """Ensure bot_settings table has default values for consultation settings."""
+    # Default consultation message
+    default_message = """قرار نیست حرفای تئوری بشنوی.
+
+مسئله‌ت رو بیار،
+
+من ریشه‌ش رو پیدا می‌کنم،
+
+و راه‌حل عملی و قابل اجرا بهت می‌دم.
+
+🔸 رشد فروش
+
+🔸 بازاریابی
+
+🔸 برند
+
+🔸 منابع انسانی و فرهنگ سازمانی
+
+🔸 سیستم‌سازی و نظم‌دهی به کسب‌وکار
+
+اگه نمی‌خوای وقت و پول بیشتری پای آزمون‌وخطا بریزه،
+
+مشاوره‌ت رو رزرو کن تا مسیر درست رو سریع‌تر پیدا کنیم."""
+    
+    defaults = {
+        "consultation_message": default_message,
+        "payment_amount": "500000",
+        "payment_card_number": "6037-1234-5678-9012",
+        "approval_message": "✅ درخواست مشاوره شما تایید شد.",
+        "rejection_message_template": "❌ درخواست مشاوره شما رد شد.\n\nدلیل: {reason}",
+    }
+    
+    for key, value in defaults.items():
+        existing = conn.execute(
+            "SELECT value FROM bot_settings WHERE key = ?",
+            (key,)
+        ).fetchone()
+        if not existing:
+            conn.execute(
+                "INSERT INTO bot_settings (key, value) VALUES (?, ?)",
+                (key, value)
+            )
 
 
 def _ensure_drop_learning_content_schema(conn: sqlite3.Connection) -> None:
@@ -1124,4 +1178,39 @@ def list_pending_consultation_requests() -> Iterable[Dict[str, str]]:
                 "rejection_reason": row[4] or "",
                 "created_at": row[5],
             }
+
+
+# Bot settings functions
+def get_bot_setting(key: str, default: str = "") -> str:
+    """Get a bot setting value."""
+    with sqlite3.connect(DB_PATH) as conn:
+        result = conn.execute(
+            "SELECT value FROM bot_settings WHERE key = ?",
+            (key,)
+        ).fetchone()
+        return result[0] if result else default
+
+
+def set_bot_setting(key: str, value: str) -> None:
+    """Set a bot setting value."""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            """
+            INSERT INTO bot_settings (key, value)
+            VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            """,
+            (key, value)
+        )
+
+
+def get_consultation_settings() -> Dict[str, str]:
+    """Get all consultation-related settings."""
+    return {
+        "consultation_message": get_bot_setting("consultation_message"),
+        "payment_amount": get_bot_setting("payment_amount"),
+        "payment_card_number": get_bot_setting("payment_card_number"),
+        "approval_message": get_bot_setting("approval_message"),
+        "rejection_message_template": get_bot_setting("rejection_message_template"),
+    }
 

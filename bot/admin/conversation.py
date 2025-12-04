@@ -47,6 +47,12 @@ from ..constants import (
     ADMIN_PANEL_CASE_STUDIES_ADD_CONTENT,
     ADMIN_PANEL_CASE_STUDIES_EDIT_TITLE,
     ADMIN_PANEL_CASE_STUDIES_EDIT_DESCRIPTION,
+    ADMIN_PANEL_CONSULTATION_SETTINGS,
+    ADMIN_PANEL_CONSULTATION_SETTINGS_EDIT_MESSAGE,
+    ADMIN_PANEL_CONSULTATION_SETTINGS_EDIT_AMOUNT,
+    ADMIN_PANEL_CONSULTATION_SETTINGS_EDIT_CARD,
+    ADMIN_PANEL_CONSULTATION_SETTINGS_EDIT_APPROVAL_MESSAGE,
+    ADMIN_PANEL_CONSULTATION_SETTINGS_EDIT_REJECTION_TEMPLATE,
     BROADCAST_OPTIONS,
     TEMP_ADMIN_IDS,
 )
@@ -63,6 +69,7 @@ from ..keyboards import (
     admin_main_reply_keyboard,
     admin_manage_keyboard,
     admin_settings_keyboard,
+    consultation_settings_keyboard,
 )
 from ..menu import send_main_menu
 from ..utils import (
@@ -278,6 +285,25 @@ async def admin_panel_settings_callback(
             reply_markup=admin_settings_keyboard(new_state),
         )
         return ADMIN_PANEL_SETTINGS
+
+    if data == "settings:consultation":
+        settings = database.get_consultation_settings()
+        settings_text = f"""تنظیمات مشاوره:
+
+📝 متن مشاوره:
+{settings['consultation_message'][:100]}...
+
+💵 مبلغ: {settings['payment_amount']} تومان
+💳 شماره کارت: {settings['payment_card_number']}
+✅ پیام تایید: {settings['approval_message'][:50]}...
+❌ قالب پیام رد: {settings['rejection_message_template'][:50]}...
+
+یکی از گزینه‌ها را انتخاب کنید:"""
+        await query.edit_message_text(
+            settings_text,
+            reply_markup=consultation_settings_keyboard(),
+        )
+        return ADMIN_PANEL_CONSULTATION_SETTINGS
 
     if data == "settings:back":
         await query.edit_message_text("بازگشت به پنل ادمین.")
@@ -2227,11 +2253,12 @@ async def handle_consultation_approval(
     # Update status
     database.update_consultation_request_status(request_id, "approved")
 
-    # Send confirmation to user
+    # Send confirmation to user using custom message from settings
+    approval_message = database.get_bot_setting("approval_message")
     try:
         await context.bot.send_message(
             chat_id=request["user_id"],
-            text="✅ درخواست مشاوره شما تایید شد.",
+            text=approval_message,
         )
     except Exception as e:
         logging.warning(f"Failed to send approval message to user {request['user_id']}: {e}")
@@ -2241,7 +2268,7 @@ async def handle_consultation_approval(
     context.user_data["consultation_user_id"] = request["user_id"]
 
     await query.edit_message_caption(
-        caption=query.message.caption + "\n\n✅ تایید شد. لطفاً پیام دلخواه خود را برای کاربر ارسال کنید:",
+        caption=query.message.caption + "\n\n✅ تایید شد. لطفاً پیام دلخواه خود را برای کاربر ارسال کنید (یا /skip بزنید):",
     )
 
 
@@ -2313,19 +2340,27 @@ async def handle_consultation_rejection_reason(
     # Update status with reason
     database.update_consultation_request_status(request_id, "rejected", rejection_reason)
 
-    # Send rejection message to user
+    # Send rejection message to user using custom template from settings
+    rejection_template = database.get_bot_setting("rejection_message_template")
+    rejection_message = rejection_template.replace("{reason}", rejection_reason)
+    
     try:
         await context.bot.send_message(
             chat_id=user_id,
-            text=f"❌ درخواست مشاوره شما رد شد.\n\nدلیل: {rejection_reason}",
+            text=rejection_message,
         )
     except Exception as e:
         logging.warning(f"Failed to send rejection message to user {user_id}: {e}")
 
+    # Request custom message from admin (optional)
+    context.user_data["consultation_reject_message"] = request_id
+    context.user_data["consultation_reject_user_id"] = user_id
     context.user_data.pop("consultation_reject", None)
     context.user_data.pop("consultation_user_id", None)
 
-    await update.message.reply_text("پیام رد به کاربر ارسال شد.")
+    await update.message.reply_text(
+        "پیام رد به کاربر ارسال شد. اگر می‌خواهید پیام اضافی ارسال کنید، آن را بنویسید (یا /skip بزنید):"
+    )
 
 
 async def handle_consultation_custom_message(
@@ -2343,9 +2378,25 @@ async def handle_consultation_custom_message(
     user_id = context.user_data.get("consultation_user_id")
 
     if not request_id or not user_id:
-        return
+        # Check if this is for rejection message
+        request_id = context.user_data.get("consultation_reject_message")
+        user_id = context.user_data.get("consultation_reject_user_id")
+        if not request_id or not user_id:
+            return
+        is_rejection = True
+    else:
+        is_rejection = False
 
     if not update.message:
+        return
+
+    # Handle /skip command
+    if update.message.text and update.message.text.strip() == "/skip":
+        context.user_data.pop("consultation_send_message", None)
+        context.user_data.pop("consultation_user_id", None)
+        context.user_data.pop("consultation_reject_message", None)
+        context.user_data.pop("consultation_reject_user_id", None)
+        await update.message.reply_text("ارسال پیام اضافی رد شد.")
         return
 
     # Forward message to user (supports text, photo, document, etc.)
@@ -2380,12 +2431,274 @@ async def handle_consultation_custom_message(
             await update.message.reply_text("این نوع پیام پشتیبانی نمی‌شود.")
             return
 
-        context.user_data.pop("consultation_send_message", None)
-        context.user_data.pop("consultation_user_id", None)
+        if is_rejection:
+            context.user_data.pop("consultation_reject_message", None)
+            context.user_data.pop("consultation_reject_user_id", None)
+        else:
+            context.user_data.pop("consultation_send_message", None)
+            context.user_data.pop("consultation_user_id", None)
         await update.message.reply_text("پیام به کاربر ارسال شد.")
     except Exception as e:
         logging.warning(f"Failed to send custom message to user {user_id}: {e}")
         await update.message.reply_text("خطا در ارسال پیام.")
+
+
+# Consultation settings functions
+CONSULTATION_SETTINGS_CANCEL_MARKUP = InlineKeyboardMarkup(
+    [[InlineKeyboardButton("انصراف 🔙", callback_data="consultation:back")]]
+)
+
+
+async def consultation_settings_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Handle consultation settings menu callbacks."""
+    query = update.callback_query
+    await query.answer()
+
+    if not await ensure_private_chat(update, context):
+        return ConversationHandler.END
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
+    user = update.effective_user
+    if not user or not is_admin_user(user.id):
+        await query.edit_message_text("دسترسی شما قطع شده است.")
+        return ConversationHandler.END
+
+    data = query.data
+
+    if data == "consultation:back":
+        await query.edit_message_text("بازگشت به تنظیمات ربات.")
+        await query.message.reply_text(
+            "بخش تنظیمات ربات:",
+            reply_markup=admin_settings_keyboard(phone_requirement_enabled(context)),
+        )
+        return ADMIN_PANEL_SETTINGS
+
+    if data == "consultation:edit_message":
+        current_message = database.get_bot_setting("consultation_message")
+        await query.edit_message_text(
+            f"متن فعلی:\n\n{current_message}\n\nلطفاً متن جدید مشاوره را ارسال کنید:",
+            reply_markup=CONSULTATION_SETTINGS_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_CONSULTATION_SETTINGS_EDIT_MESSAGE
+
+    if data == "consultation:edit_amount":
+        current_amount = database.get_bot_setting("payment_amount")
+        await query.edit_message_text(
+            f"مبلغ فعلی: {current_amount} تومان\n\nلطفاً مبلغ جدید را ارسال کنید (فقط عدد):",
+            reply_markup=CONSULTATION_SETTINGS_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_CONSULTATION_SETTINGS_EDIT_AMOUNT
+
+    if data == "consultation:edit_card":
+        current_card = database.get_bot_setting("payment_card_number")
+        await query.edit_message_text(
+            f"شماره کارت فعلی: {current_card}\n\nلطفاً شماره کارت جدید را ارسال کنید:",
+            reply_markup=CONSULTATION_SETTINGS_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_CONSULTATION_SETTINGS_EDIT_CARD
+
+    if data == "consultation:edit_approval":
+        current_message = database.get_bot_setting("approval_message")
+        await query.edit_message_text(
+            f"پیام فعلی:\n\n{current_message}\n\nلطفاً پیام جدید تایید را ارسال کنید:",
+            reply_markup=CONSULTATION_SETTINGS_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_CONSULTATION_SETTINGS_EDIT_APPROVAL_MESSAGE
+
+    if data == "consultation:edit_rejection":
+        current_template = database.get_bot_setting("rejection_message_template")
+        await query.edit_message_text(
+            f"قالب فعلی:\n\n{current_template}\n\nلطفاً قالب جدید رد را ارسال کنید (از {reason} برای جایگزینی با دلیل رد استفاده کنید):",
+            reply_markup=CONSULTATION_SETTINGS_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_CONSULTATION_SETTINGS_EDIT_REJECTION_TEMPLATE
+
+    await query.answer("گزینه نامعتبر است.", show_alert=True)
+    return ADMIN_PANEL_CONSULTATION_SETTINGS
+
+
+async def consultation_edit_message(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Handle consultation message edit."""
+    if not await ensure_private_chat(update, context):
+        return ConversationHandler.END
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
+    user = update.effective_user
+    if not user or not is_admin_user(user.id):
+        return ConversationHandler.END
+
+    if not update.message or not update.message.text:
+        await update.message.reply_text(
+            "لطفاً یک متن ارسال کنید.",
+            reply_markup=CONSULTATION_SETTINGS_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_CONSULTATION_SETTINGS_EDIT_MESSAGE
+
+    new_message = update.message.text.strip()
+    if not new_message:
+        await update.message.reply_text(
+            "متن نمی‌تواند خالی باشد.",
+            reply_markup=CONSULTATION_SETTINGS_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_CONSULTATION_SETTINGS_EDIT_MESSAGE
+
+    database.set_bot_setting("consultation_message", new_message)
+    settings = database.get_consultation_settings()
+    await update.message.reply_text(
+        "متن مشاوره به‌روزرسانی شد ✅\n\nبخش تنظیمات مشاوره:",
+        reply_markup=consultation_settings_keyboard(),
+    )
+    return ADMIN_PANEL_CONSULTATION_SETTINGS
+
+
+async def consultation_edit_amount(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Handle payment amount edit."""
+    if not await ensure_private_chat(update, context):
+        return ConversationHandler.END
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
+    user = update.effective_user
+    if not user or not is_admin_user(user.id):
+        return ConversationHandler.END
+
+    if not update.message or not update.message.text:
+        await update.message.reply_text(
+            "لطفاً یک عدد ارسال کنید.",
+            reply_markup=CONSULTATION_SETTINGS_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_CONSULTATION_SETTINGS_EDIT_AMOUNT
+
+    new_amount = update.message.text.strip()
+    if not new_amount or not new_amount.isdigit():
+        await update.message.reply_text(
+            "لطفاً فقط عدد ارسال کنید.",
+            reply_markup=CONSULTATION_SETTINGS_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_CONSULTATION_SETTINGS_EDIT_AMOUNT
+
+    database.set_bot_setting("payment_amount", new_amount)
+    await update.message.reply_text(
+        f"مبلغ به {new_amount} تومان به‌روزرسانی شد ✅\n\nبخش تنظیمات مشاوره:",
+        reply_markup=consultation_settings_keyboard(),
+    )
+    return ADMIN_PANEL_CONSULTATION_SETTINGS
+
+
+async def consultation_edit_card(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Handle payment card number edit."""
+    if not await ensure_private_chat(update, context):
+        return ConversationHandler.END
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
+    user = update.effective_user
+    if not user or not is_admin_user(user.id):
+        return ConversationHandler.END
+
+    if not update.message or not update.message.text:
+        await update.message.reply_text(
+            "لطفاً شماره کارت را ارسال کنید.",
+            reply_markup=CONSULTATION_SETTINGS_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_CONSULTATION_SETTINGS_EDIT_CARD
+
+    new_card = update.message.text.strip()
+    if not new_card:
+        await update.message.reply_text(
+            "شماره کارت نمی‌تواند خالی باشد.",
+            reply_markup=CONSULTATION_SETTINGS_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_CONSULTATION_SETTINGS_EDIT_CARD
+
+    database.set_bot_setting("payment_card_number", new_card)
+    await update.message.reply_text(
+        f"شماره کارت به {new_card} به‌روزرسانی شد ✅\n\nبخش تنظیمات مشاوره:",
+        reply_markup=consultation_settings_keyboard(),
+    )
+    return ADMIN_PANEL_CONSULTATION_SETTINGS
+
+
+async def consultation_edit_approval_message(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Handle approval message edit."""
+    if not await ensure_private_chat(update, context):
+        return ConversationHandler.END
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
+    user = update.effective_user
+    if not user or not is_admin_user(user.id):
+        return ConversationHandler.END
+
+    if not update.message or not update.message.text:
+        await update.message.reply_text(
+            "لطفاً یک متن ارسال کنید.",
+            reply_markup=CONSULTATION_SETTINGS_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_CONSULTATION_SETTINGS_EDIT_APPROVAL_MESSAGE
+
+    new_message = update.message.text.strip()
+    if not new_message:
+        await update.message.reply_text(
+            "متن نمی‌تواند خالی باشد.",
+            reply_markup=CONSULTATION_SETTINGS_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_CONSULTATION_SETTINGS_EDIT_APPROVAL_MESSAGE
+
+    database.set_bot_setting("approval_message", new_message)
+    await update.message.reply_text(
+        "پیام تایید به‌روزرسانی شد ✅\n\nبخش تنظیمات مشاوره:",
+        reply_markup=consultation_settings_keyboard(),
+    )
+    return ADMIN_PANEL_CONSULTATION_SETTINGS
+
+
+async def consultation_edit_rejection_template(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> int:
+    """Handle rejection message template edit."""
+    if not await ensure_private_chat(update, context):
+        return ConversationHandler.END
+    if not await ensure_channel_membership(update, context):
+        return ConversationHandler.END
+
+    user = update.effective_user
+    if not user or not is_admin_user(user.id):
+        return ConversationHandler.END
+
+    if not update.message or not update.message.text:
+        await update.message.reply_text(
+            "لطفاً یک متن ارسال کنید.",
+            reply_markup=CONSULTATION_SETTINGS_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_CONSULTATION_SETTINGS_EDIT_REJECTION_TEMPLATE
+
+    new_template = update.message.text.strip()
+    if not new_template:
+        await update.message.reply_text(
+            "قالب نمی‌تواند خالی باشد.",
+            reply_markup=CONSULTATION_SETTINGS_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_CONSULTATION_SETTINGS_EDIT_REJECTION_TEMPLATE
+
+    database.set_bot_setting("rejection_message_template", new_template)
+    await update.message.reply_text(
+        "قالب پیام رد به‌روزرسانی شد ✅\n\nبخش تنظیمات مشاوره:",
+        reply_markup=consultation_settings_keyboard(),
+    )
+    return ADMIN_PANEL_CONSULTATION_SETTINGS
 
 
 async def admin_cancel(
@@ -2821,6 +3134,39 @@ def create_admin_conversation() -> ConversationHandler:
                     private_text & ~filters.COMMAND, admin_case_studies_edit_title
                 ),
                 CallbackQueryHandler(admin_panel_case_studies_callback, pattern="^case_studies:"),
+            ],
+            ADMIN_PANEL_CONSULTATION_SETTINGS: [
+                CallbackQueryHandler(consultation_settings_callback, pattern="^consultation:"),
+            ],
+            ADMIN_PANEL_CONSULTATION_SETTINGS_EDIT_MESSAGE: [
+                MessageHandler(
+                    private_text & ~filters.COMMAND, consultation_edit_message
+                ),
+                CallbackQueryHandler(consultation_settings_callback, pattern="^consultation:"),
+            ],
+            ADMIN_PANEL_CONSULTATION_SETTINGS_EDIT_AMOUNT: [
+                MessageHandler(
+                    private_text & ~filters.COMMAND, consultation_edit_amount
+                ),
+                CallbackQueryHandler(consultation_settings_callback, pattern="^consultation:"),
+            ],
+            ADMIN_PANEL_CONSULTATION_SETTINGS_EDIT_CARD: [
+                MessageHandler(
+                    private_text & ~filters.COMMAND, consultation_edit_card
+                ),
+                CallbackQueryHandler(consultation_settings_callback, pattern="^consultation:"),
+            ],
+            ADMIN_PANEL_CONSULTATION_SETTINGS_EDIT_APPROVAL_MESSAGE: [
+                MessageHandler(
+                    private_text & ~filters.COMMAND, consultation_edit_approval_message
+                ),
+                CallbackQueryHandler(consultation_settings_callback, pattern="^consultation:"),
+            ],
+            ADMIN_PANEL_CONSULTATION_SETTINGS_EDIT_REJECTION_TEMPLATE: [
+                MessageHandler(
+                    private_text & ~filters.COMMAND, consultation_edit_rejection_template
+                ),
+                CallbackQueryHandler(consultation_settings_callback, pattern="^consultation:"),
             ],
         },
         fallbacks=[CommandHandler("cancel", admin_cancel)],

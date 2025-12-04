@@ -19,9 +19,6 @@ from .constants import (
     CORE_MENU_BUTTONS,
     CORE_MENU_RESPONSES,
     SERVICE_RESPONSES,
-    CONSULTATION_MESSAGE,
-    PAYMENT_AMOUNT,
-    PAYMENT_CARD_NUMBER,
 )
 from .guards import (
     ensure_channel_membership,
@@ -189,8 +186,9 @@ async def handle_menu_selection(
         return
     
     if text == "رزرو مشاوره":
+        consultation_message = database.get_bot_setting("consultation_message")
         await update.message.reply_text(
-            CONSULTATION_MESSAGE,
+            consultation_message,
             reply_markup=consultation_payment_keyboard(),
         )
         return
@@ -659,10 +657,13 @@ async def handle_consultation_payment_callback(
     if not await ensure_registered_user(update, context):
         return
 
+    payment_amount = database.get_bot_setting("payment_amount")
+    payment_card_number = database.get_bot_setting("payment_card_number")
+    
     payment_message = f"""💳 اطلاعات پرداخت:
 
-مبلغ: {PAYMENT_AMOUNT} تومان
-شماره کارت: {PAYMENT_CARD_NUMBER}
+مبلغ: {payment_amount} تومان
+شماره کارت: {payment_card_number}
 
 فیش واریز رو باید ارسال کنید از طریق دکمه زیر"""
 

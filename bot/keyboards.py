@@ -99,6 +99,11 @@ def admin_settings_keyboard(require_phone: bool) -> InlineKeyboardMarkup:
                 )
             ],
             [InlineKeyboardButton(toggle_label, callback_data="settings:toggle_phone")],
+            [
+                InlineKeyboardButton(
+                    "تنظیمات مشاوره 💼", callback_data="settings:consultation"
+                )
+            ],
             [InlineKeyboardButton("بازگشت 🔙", callback_data="settings:back")],
         ]
     )
@@ -204,6 +209,44 @@ def consultation_approval_keyboard(request_id: int) -> InlineKeyboardMarkup:
     )
 
 
+def consultation_settings_keyboard() -> InlineKeyboardMarkup:
+    """Keyboard for consultation settings menu."""
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "📝 ویرایش متن مشاوره", callback_data="consultation:edit_message"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "💵 ویرایش مبلغ", callback_data="consultation:edit_amount"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "💳 ویرایش شماره کارت", callback_data="consultation:edit_card"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "✅ ویرایش پیام تایید", callback_data="consultation:edit_approval"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "❌ ویرایش قالب پیام رد", callback_data="consultation:edit_rejection"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "بازگشت 🔙", callback_data="consultation:back"
+                )
+            ],
+        ]
+    )
+
+
 __all__ = [
     "REQUEST_CONTACT_KEYBOARD",
     "SERVICE_MENU_KEYBOARD",
@@ -219,6 +262,7 @@ __all__ = [
     "consultation_payment_keyboard",
     "consultation_receipt_keyboard",
     "consultation_approval_keyboard",
+    "consultation_settings_keyboard",
     "ReplyKeyboardRemove",
 ]
 
