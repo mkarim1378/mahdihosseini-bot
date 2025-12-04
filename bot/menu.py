@@ -481,36 +481,45 @@ async def send_drop_learning_content(
     content_items = list(database.get_drop_learning_content(item_id))
     for content_item in content_items:
         try:
+            caption = content_item.get("caption") or None
             if content_item["file_type"] == "video":
                 await context.bot.send_video(
                     chat_id=update.effective_chat.id,
                     video=content_item["file_id"],
+                    caption=caption,
                 )
             elif content_item["file_type"] == "voice":
                 await context.bot.send_voice(
                     chat_id=update.effective_chat.id,
                     voice=content_item["file_id"],
+                    caption=caption,
                 )
             elif content_item["file_type"] == "audio":
                 await context.bot.send_audio(
                     chat_id=update.effective_chat.id,
                     audio=content_item["file_id"],
+                    caption=caption,
                 )
             elif content_item["file_type"] == "document":
                 await context.bot.send_document(
                     chat_id=update.effective_chat.id,
                     document=content_item["file_id"],
+                    caption=caption,
                 )
             elif content_item["file_type"] == "photo":
                 await context.bot.send_photo(
                     chat_id=update.effective_chat.id,
                     photo=content_item["file_id"],
+                    caption=caption,
                 )
             elif content_item["file_type"] == "video_note":
+                # video_note doesn't support caption
                 await context.bot.send_video_note(
                     chat_id=update.effective_chat.id,
                     video_note=content_item["file_id"],
                 )
+                if caption:
+                    await update.message.reply_text(caption)
         except Exception as e:
             logging.warning(f"Failed to send drop learning content {content_item['id']}: {e}")
             continue

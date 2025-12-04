@@ -867,6 +867,78 @@ async def admin_panel_drop_learning_callback(
             await query.answer("حذف محتوا با خطا مواجه شد.", show_alert=True)
         return ADMIN_PANEL_DROP_LEARNING_MANAGE_CONTENT
 
+    if data == "drop_learning:content:insert:select":
+        item_id = context.user_data.get("drop_learning_selected")
+        if not item_id:
+            await query.answer("ابتدا دراپ لرنینگ را انتخاب کنید.", show_alert=True)
+            await show_drop_learning_menu(query, context)
+            return ADMIN_PANEL_DROP_LEARNING_MENU
+        
+        content_items = list(database.get_drop_learning_content(item_id))
+        if not content_items:
+            await query.answer("ابتدا حداقل یک محتوا اضافه کنید.", show_alert=True)
+            await show_drop_learning_content_list(query, context, item_id)
+            return ADMIN_PANEL_DROP_LEARNING_MANAGE_CONTENT
+        
+        # Show position selection menu
+        text_parts = ["انتخاب موقعیت برای افزودن محتوا:"]
+        text_parts.append("")
+        
+        keyboard = []
+        # Option to insert at the beginning (position 0)
+        keyboard.append([InlineKeyboardButton("➡️ افزودن در ابتدا (موقعیت 1)", callback_data="drop_learning:content:insert:0")])
+        
+        # Options to insert after each existing item
+        for idx, content_item in enumerate(content_items):
+            file_type_labels = {
+                "video": "📹",
+                "voice": "🎤",
+                "audio": "🎵",
+                "document": "📄",
+                "photo": "🖼️",
+                "video_note": "📹",
+            }
+            icon = file_type_labels.get(content_item["file_type"], "📎")
+            position = idx + 1
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"➡️ بعد از {icon} (موقعیت {position + 1})",
+                    callback_data=f"drop_learning:content:insert:{position}"
+                )
+            ])
+        
+        keyboard.append([InlineKeyboardButton("بازگشت 🔙", callback_data="drop_learning:manage_content")])
+        
+        await query.edit_message_text(
+            "\n".join(text_parts),
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return ADMIN_PANEL_DROP_LEARNING_MANAGE_CONTENT
+
+    if data.startswith("drop_learning:content:insert:"):
+        try:
+            position = int(data.split(":", maxsplit=3)[3])
+        except (IndexError, ValueError):
+            await query.answer("گزینه نامعتبر است.", show_alert=True)
+            return ADMIN_PANEL_DROP_LEARNING_MANAGE_CONTENT
+        
+        item_id = context.user_data.get("drop_learning_selected")
+        if not item_id:
+            await query.answer("ابتدا دراپ لرنینگ را انتخاب کنید.", show_alert=True)
+            await show_drop_learning_menu(query, context)
+            return ADMIN_PANEL_DROP_LEARNING_MENU
+        
+        context.user_data["drop_learning_flow"] = {
+            "item_id": item_id,
+            "mode": "insert_content",
+            "position": position
+        }
+        await query.edit_message_text(
+            f"محتوای جدید را برای افزودن در موقعیت {position + 1} ارسال کنید (ویدیو، وویس، فایل و...).",
+            reply_markup=DROP_LEARNING_CANCEL_MARKUP,
+        )
+        return ADMIN_PANEL_DROP_LEARNING_ADD_CONTENT_ITEM
+
     if data == "drop_learning:finish":
         flow = context.user_data.get("drop_learning_flow") or {}
         title = flow.get("title")
@@ -885,7 +957,8 @@ async def admin_panel_drop_learning_callback(
         # Add content items
         for item in content_items:
             database.add_drop_learning_content(
-                item_id, item["file_id"], item["file_type"], item["order"]
+                item_id, item["file_id"], item["file_type"], item["order"], 
+                caption=item.get("caption")
             )
         
         context.user_data.pop("drop_learning_flow", None)
@@ -1410,15 +1483,20 @@ async def admin_drop_learning_add_content(
         file_type = "video_note"
     
     if file_id and file_type:
+        # Get caption from message if available
+        caption = update.message.caption or None
+        
         content_items.append({
             "file_id": file_id,
             "file_type": file_type,
-            "order": len(content_items)
+            "order": len(content_items),
+            "caption": caption
         })
         flow["content_items"] = content_items
         context.user_data["drop_learning_flow"] = flow
+        caption_msg = " (با کپشن)" if caption else ""
         await update.message.reply_text(
-            f"محتوای {len(content_items)} ثبت شد.\n"
+            f"محتوای {len(content_items)} ثبت شد{caption_msg}.\n"
             "می‌توانید محتوای دیگری ارسال کنید یا دکمه «پایان ✅» را بزنید.",
             reply_markup=DROP_LEARNING_CONTENT_MARKUP,
         )
@@ -1532,12 +1610,23 @@ async def admin_drop_learning_add_content_item(
         file_type = "video_note"
     
     if file_id and file_type:
-        # Get current content count to set order
-        content_items = list(database.get_drop_learning_content(item_id))
-        order = len(content_items)
+        # Get caption from message if available
+        caption = update.message.caption or None
+        
+        # Check if this is an insert operation at specific position
+        mode = flow.get("mode")
+        if mode == "insert_content" and "position" in flow:
+            position = flow.get("position")
+            order = position
+        else:
+            # Get current content count to set order (add at end)
+            content_items = list(database.get_drop_learning_content(item_id))
+            order = len(content_items)
 
-        database.add_drop_learning_content(item_id, file_id, file_type, order)
-        await update.message.reply_text("محتوا با موفقیت اضافه شد ✅")
+        database.add_drop_learning_content(item_id, file_id, file_type, order, caption=caption)
+        caption_msg = " (با کپشن)" if caption else ""
+        position_msg = f" در موقعیت {order + 1}" if mode == "insert_content" else ""
+        await update.message.reply_text(f"محتوا با موفقیت اضافه شد ✅{position_msg}{caption_msg}")
         # Return to manage content state - user can add more or go back
         await update.message.reply_text(
             "می‌توانید محتوای دیگری اضافه کنید یا به مدیریت محتوا بازگردید.",
@@ -1599,8 +1688,12 @@ async def admin_drop_learning_edit_content_item(
         file_type = "video_note"
     
     if file_id and file_type:
-        if database.update_drop_learning_content(content_id, file_id, file_type):
-            await update.message.reply_text("محتوا با موفقیت به‌روزرسانی شد ✅")
+        # Get caption from message if available
+        caption = update.message.caption or None
+        
+        if database.update_drop_learning_content(content_id, file_id, file_type, caption=caption):
+            caption_msg = " (با کپشن)" if caption else ""
+            await update.message.reply_text(f"محتوا با موفقیت به‌روزرسانی شد ✅{caption_msg}")
             context.user_data.pop("drop_learning_flow", None)
             # Return to manage content - user can continue managing or go back
             await update.message.reply_text(
@@ -2439,7 +2532,9 @@ async def show_drop_learning_content_list(
     text = "\n".join(text_parts)
 
     keyboard = []
-    keyboard.append([InlineKeyboardButton("➕ افزودن محتوا", callback_data="drop_learning:content:add")])
+    keyboard.append([InlineKeyboardButton("➕ افزودن محتوا (در انتها)", callback_data="drop_learning:content:add")])
+    if content_items:
+        keyboard.append([InlineKeyboardButton("➕ افزودن در موقعیت خاص", callback_data="drop_learning:content:insert:select")])
     
     if content_items:
         for content_item in content_items:

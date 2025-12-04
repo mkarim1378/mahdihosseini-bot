@@ -762,7 +762,23 @@ def delete_drop_learning(item_id: int) -> bool:
 
 
 def add_drop_learning_content(item_id: int, file_id: str, file_type: str, content_order: int = 0, caption: Optional[str] = None) -> int:
+    """Add drop learning content. If inserting at specific position, shift existing items."""
     with sqlite3.connect(DB_PATH) as conn:
+        # Check current max order
+        max_order_result = conn.execute(
+            "SELECT COALESCE(MAX(content_order), -1) FROM drop_learning_content WHERE drop_learning_id = ?",
+            (item_id,)
+        ).fetchone()
+        max_order = max_order_result[0] if max_order_result else -1
+        
+        # If inserting at a specific position that's not at the end, shift existing items
+        if content_order <= max_order:
+            # Shift all items at or after this position
+            conn.execute(
+                "UPDATE drop_learning_content SET content_order = content_order + 1 WHERE drop_learning_id = ? AND content_order >= ?",
+                (item_id, content_order)
+            )
+        
         cursor = conn.execute(
             """
             INSERT INTO drop_learning_content (drop_learning_id, file_id, file_type, content_order, caption)
@@ -819,17 +835,17 @@ def get_drop_learning_content_item(content_id: int) -> Optional[Dict[str, str]]:
 
 
 def update_drop_learning_content(
-    content_id: int, file_id: str, file_type: str
+    content_id: int, file_id: str, file_type: str, caption: Optional[str] = None
 ) -> bool:
-    """Update a drop learning content item (replace file)."""
+    """Update a drop learning content item (replace file and optionally caption)."""
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
             """
             UPDATE drop_learning_content
-            SET file_id = ?, file_type = ?
+            SET file_id = ?, file_type = ?, caption = ?
             WHERE id = ?
             """,
-            (file_id, file_type, content_id),
+            (file_id, file_type, caption, content_id),
         )
         return cursor.rowcount > 0
 
